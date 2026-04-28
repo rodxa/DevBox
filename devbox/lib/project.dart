@@ -33,10 +33,23 @@ class _ProjectState extends State<Project> {
                     mainAxisAlignment: MainAxisAlignment.start,
                     children: [
                       IconButton(
-                        icon: Icon(Icons.arrow_back, color: Colors.white),
+                        icon: Icon(Icons.arrow_back),
+                        color: Colors.white,
                         onPressed: () {
                           Navigator.of(context).pop();
                         },
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "home",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),

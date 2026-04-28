@@ -16,6 +16,9 @@ class _HomeState extends State<Home> {
   );
   List<Directory> projectFolders = [];
 
+  TextEditingController projectNameController = TextEditingController();
+  bool projectAlreadyExists = false;
+
   void loadProjects() {
     if (contentFolder.existsSync()) {
       setState(() {
@@ -65,7 +68,61 @@ class _HomeState extends State<Home> {
                         icon: Icon(Icons.add),
                         color: Colors.white,
                         onPressed: () {
-                          // Handle add project action
+                          projectAlreadyExists = false;
+                          showDialog(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              title: Text('Create New Project'),
+                              content: TextField(
+                                controller: projectNameController,
+                                decoration: InputDecoration(
+                                  hintText: 'Project Name',
+                                  errorText: projectAlreadyExists
+                                      ? 'A project with this name already exists.'
+                                      : null,
+                                ),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.of(context).pop();
+                                  },
+                                  child: Text('Cancel'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    if (projectNameController.text.trim().isEmpty) return;
+                                    if (projectFolders.any(
+                                      (folder) =>
+                                          folder.path.split('\\').last ==
+                                          projectNameController.text.trim(),
+                                    )) {
+                                      // Use the dialog's context to update state
+                                      (context as Element).markNeedsBuild();
+                                      setState(() {
+                                        projectAlreadyExists = true;
+                                      });
+                                      // Do not clear or close, just show the error
+                                      return;
+                                    }
+                                    setState(() {
+                                      Directory newProjectDir = Directory(
+                                        '${contentFolder.path}/${projectNameController.text}',
+                                      );
+                                      newProjectDir.createSync();
+                                      projectFolders.add(newProjectDir);
+                                    });
+                                    loadProjects();
+                                    Navigator.of(context).pop();
+                                  },
+                                  child: Text('Create'),
+                                ),
+                              ],
+                            ),
+                          );
                         },
                       ),
                     ],
@@ -87,12 +144,19 @@ class _HomeState extends State<Home> {
                           child: InkWell(
                             borderRadius: BorderRadius.circular(5),
                             hoverColor: Colors.blueGrey[700],
-                            splashColor: const Color.fromARGB(255, 148, 160, 180).withOpacity(0.3),
+                            splashColor: const Color.fromARGB(
+                              255,
+                              148,
+                              160,
+                              180,
+                            ).withOpacity(0.3),
                             onTap: () {
                               Globals().projectTab.value = 0;
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (context) => Project(projectFolder: projectFolders[index]),
+                                  builder: (context) => Project(
+                                    projectFolder: projectFolders[index],
+                                  ),
                                 ),
                               );
                             },
@@ -175,12 +239,14 @@ class _HomeState extends State<Home> {
                         hintText: 'search project or tool',
                         prefixIcon: Icon(Icons.search, size: 18),
                         isDense: true,
-                        
-                        contentPadding: EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+
+                        contentPadding: EdgeInsets.symmetric(
+                          vertical: 14,
+                          horizontal: 10,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(5),
                           borderSide: BorderSide(color: Colors.blueGrey[300]!),
-                          
                         ),
                         filled: true,
                         fillColor: Colors.white,
