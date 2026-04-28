@@ -45,48 +45,20 @@ class _ProjectState extends State<Project> {
                 Expanded(
                   child: Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8.0,
-                          vertical: 4.0,
-                        ),
-                        child: Material(
-                          color: Colors.blueGrey[800],
-                          elevation: 2,
-                          borderRadius: BorderRadius.circular(5),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(5),
-                            hoverColor: Colors.blueGrey[700],
-                            splashColor: const Color.fromARGB(255, 148, 160, 180).withOpacity(0.3),
-                            onTap: () {
-                              Globals().projectTab.value = 0;
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.dashboard, color: Colors.white70),
-                                  SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      "Dashboard",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                      DevBoxProjectButton(
+                        onTap: () {
+                          Globals().projectTab.value = 0;
+                        },
+                        text: "Dashboard",
+                        icon: Icons.dashboard,
                       ),
-                      // Add more navigation items here if needed
+                      DevBoxProjectButton(
+                        onTap: () {
+                          Globals().projectTab.value = 1;
+                        },
+                        text: "Files",
+                        icon: Icons.folder,
+                      ),
                     ],
                   ),
                 ),
@@ -106,6 +78,64 @@ class _ProjectState extends State<Project> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class DevBoxProjectButton extends StatelessWidget {
+  const DevBoxProjectButton({
+    super.key,
+    required this.onTap,
+    required this.text,
+    required this.icon,
+  });
+
+  final VoidCallback onTap;
+  final String text;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8.0,
+        vertical: 4.0,
+      ),
+      child: Material(
+        color: Colors.blueGrey[800],
+        elevation: 2,
+        borderRadius: BorderRadius.circular(5),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(5),
+          hoverColor: Colors.blueGrey[700],
+          splashColor: const Color.fromARGB(255, 148, 160, 180).withOpacity(0.3),
+          onTap: () {
+            onTap();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: Colors.white70),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
