@@ -71,57 +71,66 @@ class _HomeState extends State<Home> {
                           projectAlreadyExists = false;
                           showDialog(
                             context: context,
-                            builder: (context) => AlertDialog(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(5),
-                              ),
-                              title: Text('Create New Project'),
-                              content: TextField(
-                                controller: projectNameController,
-                                decoration: InputDecoration(
-                                  hintText: 'Project Name',
-                                  errorText: projectAlreadyExists
-                                      ? 'A project with this name already exists.'
-                                      : null,
+                            builder: (dialogContext) {
+                              projectNameController.clear();
+                              Future<void> tryCreate() async {
+                                if (projectNameController.text.trim().isEmpty)
+                                  return;
+                                if (projectFolders.any(
+                                  (folder) =>
+                                      folder.path.split('\\').last ==
+                                      projectNameController.text.trim(),
+                                )) {
+                                  (dialogContext as Element).markNeedsBuild();
+                                  setState(() {
+                                    projectAlreadyExists = true;
+                                  });
+                                  return;
+                                }
+                                setState(() {
+                                  Directory newProjectDir = Directory(
+                                    '${contentFolder.path}/${projectNameController.text}',
+                                  );
+                                  newProjectDir.createSync();
+                                  projectFolders.add(newProjectDir);
+                                });
+                                loadProjects();
+                                Navigator.of(dialogContext).pop();
+                              }
+
+                              return AlertDialog(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(5),
                                 ),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.of(context).pop();
+                                title: Text('Create New Project'),
+                                content: TextField(
+                                  controller: projectNameController,
+                                  decoration: InputDecoration(
+                                    hintText: 'Project Name',
+                                    errorText: projectAlreadyExists
+                                        ? 'A project with this name already exists.'
+                                        : null,
+                                  ),
+                                  onSubmitted: (_) async {
+                                    await tryCreate();
                                   },
-                                  child: Text('Cancel'),
                                 ),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    if (projectNameController.text.trim().isEmpty) return;
-                                    if (projectFolders.any(
-                                      (folder) =>
-                                          folder.path.split('\\').last ==
-                                          projectNameController.text.trim(),
-                                    )) {
-                                      // Use the dialog's context to update state
-                                      (context as Element).markNeedsBuild();
-                                      setState(() {
-                                        projectAlreadyExists = true;
-                                      });
-                                      // Do not clear or close, just show the error
-                                      return;
-                                    }
-                                    setState(() {
-                                      Directory newProjectDir = Directory(
-                                        '${contentFolder.path}/${projectNameController.text}',
-                                      );
-                                      newProjectDir.createSync();
-                                      projectFolders.add(newProjectDir);
-                                    });
-                                    loadProjects();
-                                    Navigator.of(context).pop();
-                                  },
-                                  child: Text('Create'),
-                                ),
-                              ],
-                            ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.of(dialogContext).pop();
+                                    },
+                                    child: Text('Cancel'),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: () async {
+                                      await tryCreate();
+                                    },
+                                    child: Text('Create'),
+                                  ),
+                                ],
+                              );
+                            },
                           );
                         },
                       ),
@@ -152,13 +161,22 @@ class _HomeState extends State<Home> {
                             ).withOpacity(0.3),
                             onTap: () {
                               Globals().projectTab.value = 0;
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => Project(
-                                    projectFolder: projectFolders[index],
-                                  ),
-                                ),
-                              );
+                              Navigator.of(context)
+                                  .push<bool>(
+                                    MaterialPageRoute(
+                                      builder: (context) => Project(
+                                        projectFolder: projectFolders[index],
+                                        projectName: projectFolders[index].path
+                                            .split('\\')
+                                            .last,
+                                      ),
+                                    ),
+                                  )
+                                  .then((wasChanged) {
+                                    if (wasChanged == true && mounted) {
+                                      loadProjects();
+                                    }
+                                  });
                             },
                             child: Container(
                               padding: const EdgeInsets.symmetric(
