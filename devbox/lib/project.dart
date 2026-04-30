@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:devbox/globals.dart';
+import 'package:devbox/mindmap.dart';
 import 'package:flutter/material.dart';
 
 class Project extends StatefulWidget {
@@ -17,6 +18,40 @@ class Project extends StatefulWidget {
 }
 
 class _ProjectState extends State<Project> {
+  //retrieve every json file in mindmaps folder
+  void _loadProject() {
+    final mindmapsFolder = Directory(
+      '${widget.projectFolder.path}${Platform.pathSeparator}mindmaps',
+    );
+    if (!mindmapsFolder.existsSync()) {
+      return;
+    }
+
+    final mindmapFiles = mindmapsFolder
+        .listSync()
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.json'))
+        .toList();
+
+    // Load each mindmap file and add it to the state
+    for (final file in mindmapFiles) {
+      // Here you would parse the JSON and create your MindMap objects
+      // For example:
+      // final jsonContent = file.readAsStringSync();
+      // final mindMapData = jsonDecode(jsonContent);
+      // final mindMap = MindMap.fromJson(mindMapData);
+      // setState(() {
+      //   _mindMaps.add(mindMap);
+      // });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProject();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -89,9 +124,19 @@ class _ProjectState extends State<Project> {
                             Globals().projectTab.value = 2;
                           });
                         },
-                        text: "Colaborators",
-                        icon: Icons.people,
+                        text: "Mindmaps",
+                        icon: Icons.map,
                         id: 2,
+                      ),
+                      DevBoxProjectButton(
+                        onTap: () {
+                          setState(() {
+                            Globals().projectTab.value = 5;
+                          });
+                        },
+                        text: "Database",
+                        icon: Icons.storage,
+                        id: 5,
                       ),
                       DevBoxProjectButton(
                         onTap: () {
@@ -99,9 +144,20 @@ class _ProjectState extends State<Project> {
                             Globals().projectTab.value = 3;
                           });
                         },
+                        text: "Colaborators",
+                        icon: Icons.people,
+                        id: 3,
+                      ),
+
+                      DevBoxProjectButton(
+                        onTap: () {
+                          setState(() {
+                            Globals().projectTab.value = 4;
+                          });
+                        },
                         text: "Settings",
                         icon: Icons.settings,
-                        id: 3,
+                        id: 4,
                       ),
                     ],
                   ),
@@ -138,17 +194,32 @@ class _ProjectState extends State<Project> {
                     }
                     if (value == 2) {
                       return KeyedSubtree(
+                        key: const ValueKey('project-mindmaps'),
+                        child: MindMaps(
+                          projectName: widget.projectName,
+                          projectFolder: widget.projectFolder,
+                        ),
+                      );
+                    }
+                    if (value == 3) {
+                      return KeyedSubtree(
                         key: const ValueKey('project-collaborators'),
                         child: Collaborators(projectName: widget.projectName),
                       );
                     }
-                    if (value == 3) {
+                    if (value == 4) {
                       return KeyedSubtree(
                         key: const ValueKey('project-settings'),
                         child: ProjectSettings(
                           projectName: widget.projectName,
                           projectFolder: widget.projectFolder,
                         ),
+                      );
+                    }
+                    if (value == 5) {
+                      return KeyedSubtree(
+                        key: const ValueKey('project-database'),
+                        child: database(projectName: widget.projectName),
                       );
                     }
                     return KeyedSubtree(
@@ -295,13 +366,93 @@ class Files extends StatefulWidget {
 }
 
 class _FilesState extends State<Files> {
+  late final Directory _filesRootDirectory;
   late Directory _currentDirectory;
   final TextEditingController _folderNameController = TextEditingController();
+
+  String _ioPath(String path) {
+    if (!Platform.isWindows) {
+      return path;
+    }
+
+    var normalized = path.replaceAll('/', '\\');
+    if (normalized.startsWith('\\\\?\\')) {
+      return normalized;
+    }
+    if (normalized.startsWith('\\\\')) {
+      return '\\\\?\\UNC\\${normalized.substring(2)}';
+    }
+    if (RegExp(r'^[a-zA-Z]:\\').hasMatch(normalized)) {
+      return '\\\\?\\$normalized';
+    }
+    return normalized;
+  }
+
+  bool _directoryExists(Directory directory) {
+    return Directory(_ioPath(directory.path)).existsSync();
+  }
+
+  String _normalizePathForComparison(String path) {
+    final normalized = path
+        .replaceAll('/', Platform.pathSeparator)
+        .replaceAll('\\', Platform.pathSeparator);
+    if (!Platform.isWindows) {
+      return normalized;
+    }
+    return normalized.toLowerCase();
+  }
+
+  bool _samePathIgnoringCase(String first, String second) {
+    return _normalizePathForComparison(first) ==
+        _normalizePathForComparison(second);
+  }
+
+  Future<void> _renameDirectory(Directory from, Directory to) async {
+    final fromPath = from.path;
+    final toPath = to.path;
+
+    final isCaseOnlyRename =
+        Platform.isWindows &&
+        _samePathIgnoringCase(fromPath, toPath) &&
+        fromPath != toPath;
+
+    if (!isCaseOnlyRename) {
+      await Directory(_ioPath(fromPath)).rename(_ioPath(toPath));
+      return;
+    }
+
+    final tempDirectory = Directory(
+      '${from.parent.path}${Platform.pathSeparator}.__devbox_case_tmp_${DateTime.now().microsecondsSinceEpoch}',
+    );
+
+    await Directory(_ioPath(fromPath)).rename(_ioPath(tempDirectory.path));
+    await Directory(_ioPath(tempDirectory.path)).rename(_ioPath(toPath));
+  }
+
+  List<Directory> _listDirectories(Directory directory) {
+    return Directory(
+      _ioPath(directory.path),
+    ).listSync().whereType<Directory>().map((entry) {
+      var path = entry.path;
+      if (Platform.isWindows && path.startsWith('\\\\?\\UNC\\')) {
+        path = '\\\\${path.substring('\\\\?\\UNC\\'.length)}';
+      } else if (Platform.isWindows && path.startsWith('\\\\?\\')) {
+        path = path.substring('\\\\?\\'.length);
+      }
+      return Directory(path);
+    }).toList();
+  }
 
   @override
   void initState() {
     super.initState();
-    _currentDirectory = widget.projectFolder;
+    _filesRootDirectory = Directory(
+      '${widget.projectFolder.path}${Platform.pathSeparator}files',
+    );
+    if (!_directoryExists(_filesRootDirectory)) {
+      Directory(_ioPath(_filesRootDirectory.path)).createSync(recursive: true);
+    }
+    _currentDirectory = _filesRootDirectory;
   }
 
   @override
@@ -311,35 +462,95 @@ class _FilesState extends State<Files> {
   }
 
   List<Directory> _directoriesInCurrentPath() {
-    if (!_currentDirectory.existsSync()) {
+    bool exists;
+    try {
+      exists = _directoryExists(_currentDirectory);
+    } on FileSystemException {
       return const [];
     }
 
-    final entries = _currentDirectory.listSync().whereType<Directory>().toList()
-      ..sort((first, second) => first.path.compareTo(second.path));
-    return entries;
+    if (!exists) {
+      return const [];
+    }
+
+    try {
+      final entries =
+          _listDirectories(_currentDirectory).where(_isWithinFilesRoot).toList()
+            ..sort((first, second) => first.path.compareTo(second.path));
+      return entries;
+    } on FileSystemException {
+      return const [];
+    }
+  }
+
+  List<File> _filesInCurrentPath() {
+    try {
+      if (!_directoryExists(_currentDirectory)) return const [];
+      return Directory(_ioPath(_currentDirectory.path))
+          .listSync()
+          .whereType<File>()
+          .map((f) {
+            var path = f.path;
+            if (Platform.isWindows && path.startsWith('\\\\?\\UNC\\')) {
+              path = '\\\\${path.substring('\\\\?\\UNC\\'.length)}';
+            } else if (Platform.isWindows && path.startsWith('\\\\?\\')) {
+              path = path.substring('\\\\?\\'.length);
+            }
+            return File(path);
+          })
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+    } on FileSystemException {
+      return const [];
+    }
+  }
+
+  bool _isWithinFilesRoot(Directory directory) {
+    String normalize(String value) {
+      var normalized = value
+          .replaceAll('/', Platform.pathSeparator)
+          .replaceAll('\\', Platform.pathSeparator);
+      if (Platform.isWindows) {
+        normalized = normalized.toLowerCase();
+      }
+      return normalized;
+    }
+
+    final rootPath = normalize(_filesRootDirectory.absolute.path);
+    final candidatePath = normalize(directory.absolute.path);
+
+    return candidatePath == rootPath ||
+        candidatePath.startsWith('$rootPath${Platform.pathSeparator}');
   }
 
   List<Directory> _pathDirectories() {
+    if (!_isWithinFilesRoot(_currentDirectory)) {
+      _currentDirectory = _filesRootDirectory;
+    }
+
     final relativePath = _currentDirectory.path.substring(
-      widget.projectFolder.path.length,
+      _filesRootDirectory.path.length,
     );
     final parts = relativePath
         .split(Platform.pathSeparator)
         .where((part) => part.isNotEmpty)
         .toList();
 
-    final directories = <Directory>[widget.projectFolder];
-    var path = widget.projectFolder.path;
+    final directories = <Directory>[_filesRootDirectory];
+    var path = _filesRootDirectory.path;
     for (final part in parts) {
       path = '$path${Platform.pathSeparator}$part';
-      directories.add(Directory(path));
+      final nextDirectory = Directory(path);
+      if (_isWithinFilesRoot(nextDirectory)) {
+        directories.add(nextDirectory);
+      }
     }
     return directories;
   }
 
   Future<void> _createFolder() async {
     var folderAlreadyExists = false;
+    String? folderCreateError;
 
     final shouldCreate = await showDialog<bool>(
       context: context,
@@ -356,13 +567,35 @@ class _FilesState extends State<Files> {
             '${_currentDirectory.path}${Platform.pathSeparator}$folderName',
           );
 
-          if (newDirectory.existsSync()) {
+          if (!_isWithinFilesRoot(newDirectory)) {
+            return;
+          }
+
+          // Case-sensitive duplicate check: compare exact names from listing.
+          final existingNames = _listDirectories(_currentDirectory)
+              .map(
+                (d) => d.path
+                    .split(RegExp(r'[/\\]'))
+                    .where((s) => s.isNotEmpty)
+                      .last
+                      .toLowerCase(),
+              )
+              .toList();
+            if (existingNames.contains(folderName.toLowerCase())) {
             folderAlreadyExists = true;
+            folderCreateError = null;
             (dialogContext as Element).markNeedsBuild();
             return;
           }
 
-          await newDirectory.create();
+          try {
+            await Directory(_ioPath(newDirectory.path)).create();
+          } on FileSystemException {
+            folderCreateError = 'Could not create folder.';
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
           if (!mounted) {
             return;
           }
@@ -381,11 +614,15 @@ class _FilesState extends State<Files> {
               labelText: 'Folder name',
               errorText: folderAlreadyExists
                   ? 'A folder with this name already exists.'
-                  : null,
+                  : folderCreateError,
             ),
             onChanged: (_) {
               if (folderAlreadyExists) {
                 folderAlreadyExists = false;
+                (dialogContext as Element).markNeedsBuild();
+              }
+              if (folderCreateError != null) {
+                folderCreateError = null;
                 (dialogContext as Element).markNeedsBuild();
               }
             },
@@ -422,7 +659,232 @@ class _FilesState extends State<Files> {
     setState(() {});
   }
 
+  Future<void> _renameFolder(Directory folder) async {
+    if (!_isWithinFilesRoot(folder) ||
+        folder.path == _filesRootDirectory.path) {
+      return;
+    }
+
+    var folderAlreadyExists = false;
+    final currentName = folder.path.split(Platform.pathSeparator).last;
+    var nextFolderName = currentName;
+
+    final shouldRename = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final dialogElement = dialogContext as Element;
+
+        Future<void> tryRename() async {
+          final nextName = nextFolderName.trim();
+          if (nextName.isEmpty || nextName == currentName) {
+            return;
+          }
+
+          final parentPath = folder.parent.path;
+          final renamedFolder = Directory(
+            '$parentPath${Platform.pathSeparator}$nextName',
+          );
+
+          if (!_isWithinFilesRoot(renamedFolder)) {
+            return;
+          }
+
+          final isCaseOnlyRename =
+              Platform.isWindows &&
+              _samePathIgnoringCase(folder.path, renamedFolder.path) &&
+              folder.path != renamedFolder.path;
+
+          if (!isCaseOnlyRename && _directoryExists(renamedFolder)) {
+            folderAlreadyExists = true;
+            if (dialogElement.mounted) {
+              dialogElement.markNeedsBuild();
+            }
+            return;
+          }
+
+          try {
+            await _renameDirectory(folder, renamedFolder);
+          } on FileSystemException {
+            if (!context.mounted) {
+              return;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Could not rename folder.')),
+            );
+            return;
+          }
+
+          if (!context.mounted) {
+            return;
+          }
+
+          Navigator.of(dialogContext).pop(true);
+        }
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: const Text('Rename folder'),
+          content: TextFormField(
+            initialValue: currentName,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: 'Folder name',
+              errorText: folderAlreadyExists
+                  ? 'A folder with this name already exists.'
+                  : null,
+            ),
+            onChanged: (value) {
+              nextFolderName = value;
+              if (folderAlreadyExists) {
+                folderAlreadyExists = false;
+                if (dialogElement.mounted) {
+                  dialogElement.markNeedsBuild();
+                }
+              }
+            },
+            onFieldSubmitted: (_) {
+              FocusScope.of(dialogContext).unfocus();
+              Future<void>.microtask(tryRename);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await tryRename();
+              },
+              child: const Text('Rename'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldRename != true || !mounted) {
+      return;
+    }
+
+    setState(() {});
+  }
+
+  Future<void> _deleteFolder(Directory folder) async {
+    if (!_isWithinFilesRoot(folder) ||
+        folder.path == _filesRootDirectory.path) {
+      return;
+    }
+
+    final folderName = folder.path.split(Platform.pathSeparator).last;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: const Text('Delete folder'),
+          content: Text(
+            'Delete "$folderName" permanently? This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red[700]),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) {
+      return;
+    }
+
+    try {
+      final deleteTarget = Directory(_ioPath(folder.path));
+      if (deleteTarget.existsSync()) {
+        await deleteTarget.delete(recursive: true);
+      }
+    } on FileSystemException {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not delete folder.')));
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+  }
+
+  Future<void> _moveItem(String sourcePath, Directory targetFolder) async {
+    if (!_isWithinFilesRoot(targetFolder)) return;
+
+    final name = sourcePath.split(Platform.pathSeparator).last;
+    final destPath =
+        '${targetFolder.path}${Platform.pathSeparator}$name';
+
+    // Already in this folder — nothing to do
+    if (sourcePath == destPath) return;
+    // Prevent dropping a folder into one of its own descendants
+    if (targetFolder.path.startsWith(sourcePath + Platform.pathSeparator)) {
+      return;
+    }
+
+    if (File(_ioPath(destPath)).existsSync() ||
+        Directory(_ioPath(destPath)).existsSync()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"$name" already exists in the destination folder.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final srcDir = Directory(_ioPath(sourcePath));
+      if (srcDir.existsSync()) {
+        await srcDir.rename(_ioPath(destPath));
+      } else {
+        await File(_ioPath(sourcePath)).rename(_ioPath(destPath));
+      }
+    } on FileSystemException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not move item.')));
+      return;
+    }
+
+    if (mounted) setState(() {});
+  }
+
   void _openDirectory(Directory directory) {
+    if (!_isWithinFilesRoot(directory)) {
+      return;
+    }
+
+    try {
+      if (!_directoryExists(directory)) {
+        return;
+      }
+    } on FileSystemException {
+      return;
+    }
+
     setState(() {
       _currentDirectory = directory;
     });
@@ -431,8 +893,12 @@ class _FilesState extends State<Files> {
   @override
   Widget build(BuildContext context) {
     final folders = _directoriesInCurrentPath();
+    final files = _filesInCurrentPath();
     final pathDirectories = _pathDirectories();
-    final contentKey = ValueKey('${_currentDirectory.path}-${folders.length}');
+    final totalItems = folders.length + files.length;
+    final contentKey = ValueKey(
+      '${_currentDirectory.path}-${folders.length}-${files.length}',
+    );
 
     return Container(
       color: Colors.blueGrey[50],
@@ -456,7 +922,7 @@ class _FilesState extends State<Files> {
                     child: Row(
                       children: [
                         Text(
-                          "Files",
+                          'Files',
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -465,7 +931,7 @@ class _FilesState extends State<Files> {
                         ),
                         Spacer(),
                         Text(
-                          '${folders.length} ${folders.length == 1 ? "folder" : "folders"}',
+                          '${folders.length} ${folders.length == 1 ? 'folder' : 'folders'}, ${files.length} ${files.length == 1 ? 'file' : 'files'}',
                           style: TextStyle(
                             color: Colors.blueGrey[700],
                             fontSize: 14,
@@ -517,18 +983,35 @@ class _FilesState extends State<Files> {
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (var index = 0; index < pathDirectories.length; index++)
-                  _PathCrumb(
-                    label: index == 0
-                        ? widget.projectName
-                        : pathDirectories[index].path
-                              .split(Platform.pathSeparator)
-                              .last,
-                    isActive:
-                        pathDirectories[index].path == _currentDirectory.path,
-                    onTap: () => _openDirectory(pathDirectories[index]),
+                for (var i = 0; i < pathDirectories.length; i++)
+                  DragTarget<String>(
+                    onWillAcceptWithDetails: (details) {
+                      final dir = pathDirectories[i];
+                      final src = details.data;
+                      if (src == dir.path) return false;
+                      if (dir.path.startsWith(
+                        src + Platform.pathSeparator,
+                      )) return false;
+                      return _isWithinFilesRoot(dir);
+                    },
+                    onAcceptWithDetails: (details) =>
+                        _moveItem(details.data, pathDirectories[i]),
+                    builder: (context, candidateData, rejectedData) =>
+                        _PathCrumb(
+                          label: i == 0
+                              ? 'Files'
+                              : pathDirectories[i].path
+                                    .split(Platform.pathSeparator)
+                                    .last,
+                          isActive:
+                              pathDirectories[i].path ==
+                              _currentDirectory.path,
+                          isDropTarget: candidateData.isNotEmpty,
+                          onTap: () => _openDirectory(pathDirectories[i]),
+                        ),
                   ),
               ],
+
             ),
             SizedBox(height: 17),
             Expanded(
@@ -537,11 +1020,11 @@ class _FilesState extends State<Files> {
                 transitionBuilder: (child, animation) {
                   return FadeTransition(opacity: animation, child: child);
                 },
-                child: folders.isEmpty
+                child: totalItems == 0
                     ? Center(
                         key: contentKey,
                         child: Text(
-                          'No folders here yet.',
+                          'No files or folders here yet.',
                           style: TextStyle(
                             color: Colors.blueGrey[500],
                             fontSize: 16,
@@ -550,20 +1033,229 @@ class _FilesState extends State<Files> {
                       )
                     : ListView.builder(
                         key: contentKey,
-                        itemCount: folders.length,
+                        itemCount: totalItems,
                         itemBuilder: (context, index) {
-                          final folder = folders[index];
-                          return FileButton(
-                            name: folder.path
-                                .split(Platform.pathSeparator)
-                                .last,
-                            onTap: () => _openDirectory(folder),
+                          if (index < folders.length) {
+                            final folder = folders[index];
+                            final folderPath = folder.path;
+                            final folderName =
+                                folderPath.split(Platform.pathSeparator).last;
+                            return Draggable<String>(
+                              data: folderPath,
+                              dragAnchorStrategy: pointerDragAnchorStrategy,
+                              feedback: Transform.translate(
+                                offset: const Offset(-110, -20),
+                                child: Material(
+                                  elevation: 4,
+                                  borderRadius: BorderRadius.circular(5),
+                                  child: Container(
+                                    width: 220,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blueGrey[400],
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.folder,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Flexible(
+                                          child: Text(
+                                            folderName,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              childWhenDragging: Opacity(
+                                opacity: 0.4,
+                                child: FileButton(
+                                  name: folderName,
+                                  onTap: () {},
+                                  onRename: () {},
+                                  onDelete: () {},
+                                ),
+                              ),
+                              child: DragTarget<String>(
+                                onWillAcceptWithDetails: (details) {
+                                  final src = details.data;
+                                  if (src == folderPath) return false;
+                                  if (folderPath.startsWith(
+                                    src + Platform.pathSeparator,
+                                  )) return false;
+                                  final srcParent = (src
+                                          .split(Platform.pathSeparator)
+                                        ..removeLast())
+                                      .join(Platform.pathSeparator);
+                                  return srcParent != folderPath;
+                                },
+                                onAcceptWithDetails: (details) =>
+                                    _moveItem(details.data, folder),
+                                builder:
+                                    (context, candidateData, rejectedData) =>
+                                        FileButton(
+                                          name: folderName,
+                                          isDropTarget:
+                                              candidateData.isNotEmpty,
+                                          onTap: () =>
+                                              _openDirectory(folder),
+                                          onRename: () =>
+                                              _renameFolder(folder),
+                                          onDelete: () =>
+                                              _deleteFolder(folder),
+                                        ),
+                              ),
+                            );
+                          }
+                          final file = files[index - folders.length];
+                          final filePath = file.path;
+                          final fileName =
+                              filePath.split(Platform.pathSeparator).last;
+                          return Draggable<String>(
+                            data: filePath,
+                            dragAnchorStrategy: pointerDragAnchorStrategy,
+                            feedback: Transform.translate(
+                              offset: const Offset(-110, -20),
+                              child: Material(
+                                elevation: 4,
+                                borderRadius: BorderRadius.circular(5),
+                                child: Container(
+                                  width: 220,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blueGrey[300],
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.insert_drive_file,
+                                        color: Colors.blueGrey[800],
+                                        size: 18,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          fileName,
+                                          style: TextStyle(
+                                            color: Colors.blueGrey[900],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            childWhenDragging: Opacity(
+                              opacity: 0.4,
+                              child: _FileItemTile(
+                                name: fileName,
+                                onDelete: () {},
+                              ),
+                            ),
+                            child: _FileItemTile(
+                              name: fileName,
+                              onDelete: () => _deleteFile(file),
+                            ),
                           );
                         },
                       ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteFile(File file) async {
+    final name = file.path.split(Platform.pathSeparator).last;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+        title: const Text('Delete file'),
+        content: Text('Delete "$name" permanently? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red[700]),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      if (file.existsSync()) await file.delete();
+    } on FileSystemException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not delete file.')),
+      );
+      return;
+    }
+
+    if (mounted) setState(() {});
+  }
+}
+
+class _FileItemTile extends StatelessWidget {
+  const _FileItemTile({required this.name, required this.onDelete});
+
+  final String name;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Material(
+        color: Colors.blueGrey[200],
+        borderRadius: BorderRadius.circular(5),
+        child: ListTile(
+          leading: Icon(Icons.insert_drive_file, color: Colors.blueGrey[800]),
+          title: Text(
+            name,
+            style: TextStyle(
+              color: Colors.blueGrey[900],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          trailing: IconButton(
+            icon: Icon(Icons.delete, color: Colors.blueGrey[700]),
+            tooltip: 'Delete file',
+            onPressed: onDelete,
+          ),
         ),
       ),
     );
@@ -575,16 +1267,22 @@ class _PathCrumb extends StatelessWidget {
     required this.label,
     required this.isActive,
     required this.onTap,
+    this.isDropTarget = false,
   });
 
   final String label;
   final bool isActive;
   final VoidCallback onTap;
+  final bool isDropTarget;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: isActive ? Colors.blueGrey[700] : Colors.blueGrey[200],
+      color: isDropTarget
+          ? Colors.blueGrey[500]
+          : isActive
+          ? Colors.blueGrey[700]
+          : Colors.blueGrey[200],
       borderRadius: BorderRadius.circular(5),
       child: InkWell(
         borderRadius: BorderRadius.circular(5),
@@ -605,17 +1303,27 @@ class _PathCrumb extends StatelessWidget {
 }
 
 class FileButton extends StatelessWidget {
-  const FileButton({super.key, required this.name, required this.onTap});
+  const FileButton({
+    super.key,
+    required this.name,
+    required this.onTap,
+    required this.onRename,
+    required this.onDelete,
+    this.isDropTarget = false,
+  });
 
   final String name;
   final VoidCallback onTap;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+  final bool isDropTarget;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Material(
-        color: Colors.blueGrey[300],
+        color: isDropTarget ? Colors.blueGrey[500] : Colors.blueGrey[300],
         borderRadius: BorderRadius.circular(5),
         child: InkWell(
           borderRadius: BorderRadius.circular(5),
@@ -628,6 +1336,21 @@ class FileButton extends StatelessWidget {
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
               ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.white),
+                  tooltip: 'Rename folder',
+                  onPressed: onRename,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.white),
+                  tooltip: 'Delete folder',
+                  onPressed: onDelete,
+                ),
+              ],
             ),
           ),
         ),
@@ -771,6 +1494,61 @@ class ProjectSettings extends StatelessWidget {
   final String projectName;
   final Directory projectFolder;
 
+  String _ioPath(String path) {
+    if (!Platform.isWindows) {
+      return path;
+    }
+
+    var normalized = path.replaceAll('/', '\\');
+    if (normalized.startsWith('\\\\?\\')) {
+      return normalized;
+    }
+    if (normalized.startsWith('\\\\')) {
+      return '\\\\?\\UNC\\${normalized.substring(2)}';
+    }
+    if (RegExp(r'^[a-zA-Z]:\\').hasMatch(normalized)) {
+      return '\\\\?\\$normalized';
+    }
+    return normalized;
+  }
+
+  String _normalizePathForComparison(String path) {
+    final normalized = path
+        .replaceAll('/', Platform.pathSeparator)
+        .replaceAll('\\', Platform.pathSeparator);
+    if (!Platform.isWindows) {
+      return normalized;
+    }
+    return normalized.toLowerCase();
+  }
+
+  bool _samePathIgnoringCase(String first, String second) {
+    return _normalizePathForComparison(first) ==
+        _normalizePathForComparison(second);
+  }
+
+  Future<void> _renameDirectory(Directory from, Directory to) async {
+    final fromPath = from.path;
+    final toPath = to.path;
+
+    final isCaseOnlyRename =
+        Platform.isWindows &&
+        _samePathIgnoringCase(fromPath, toPath) &&
+        fromPath != toPath;
+
+    if (!isCaseOnlyRename) {
+      await Directory(_ioPath(fromPath)).rename(_ioPath(toPath));
+      return;
+    }
+
+    final tempDirectory = Directory(
+      '${from.parent.path}${Platform.pathSeparator}.__devbox_case_tmp_${DateTime.now().microsecondsSinceEpoch}',
+    );
+
+    await Directory(_ioPath(fromPath)).rename(_ioPath(tempDirectory.path));
+    await Directory(_ioPath(tempDirectory.path)).rename(_ioPath(toPath));
+  }
+
   Future<void> _renameProject(BuildContext context) async {
     var projectAlreadyExists = false;
     var nextProjectName = projectName;
@@ -791,7 +1569,13 @@ class ProjectSettings extends StatelessWidget {
             '$parentPath${Platform.pathSeparator}$nextName',
           );
 
-          if (renamedProject.existsSync()) {
+          final isCaseOnlyRename =
+              Platform.isWindows &&
+              _samePathIgnoringCase(projectFolder.path, renamedProject.path) &&
+              projectFolder.path != renamedProject.path;
+
+          if (!isCaseOnlyRename &&
+              Directory(_ioPath(renamedProject.path)).existsSync()) {
             projectAlreadyExists = true;
             if (dialogElement.mounted) {
               dialogElement.markNeedsBuild();
@@ -800,7 +1584,7 @@ class ProjectSettings extends StatelessWidget {
           }
 
           try {
-            await projectFolder.rename(renamedProject.path);
+            await _renameDirectory(projectFolder, renamedProject);
           } catch (_) {
             if (!context.mounted) {
               return;
@@ -898,8 +1682,9 @@ class ProjectSettings extends StatelessWidget {
     }
 
     try {
-      if (projectFolder.existsSync()) {
-        await projectFolder.delete(recursive: true);
+      final deleteTarget = Directory(_ioPath(projectFolder.path));
+      if (deleteTarget.existsSync()) {
+        await deleteTarget.delete(recursive: true);
       }
     } catch (_) {
       if (!context.mounted) {
@@ -1047,6 +1832,563 @@ class ProjectSettings extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MindMaps extends StatefulWidget {
+  const MindMaps({
+    super.key,
+    required this.projectName,
+    required this.projectFolder,
+  });
+
+  final String projectName;
+  final Directory projectFolder;
+
+  @override
+  State<MindMaps> createState() => _MindMapsState();
+}
+
+class _MindMapsState extends State<MindMaps> {
+  late final Directory _mindmapsDirectory;
+  List<File> _mindmapFiles = const [];
+  final TextEditingController _mindmapNameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _mindmapNameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _mindmapsDirectory = Directory(
+      '${widget.projectFolder.path}${Platform.pathSeparator}mindmaps',
+    );
+    _loadMindmaps();
+  }
+
+  Future<void> _createMindmap() async {
+    var alreadyExists = false;
+    String? createError;
+
+    final shouldCreate = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        _mindmapNameController.clear();
+
+        Future<void> tryCreate() async {
+          final rawName = _mindmapNameController.text.trim();
+          if (rawName.isEmpty) return;
+
+          // Reject names with filesystem-unsafe characters
+          if (rawName.contains(RegExp(r'[<>:"/\\|?*]'))) {
+            createError = 'Name contains invalid characters.';
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          final fileName = rawName.endsWith('.json')
+              ? rawName
+              : '$rawName.json';
+
+          final existingNames = _mindmapFiles
+              .map((f) => f.path
+                  .split(RegExp(r'[/\\]'))
+                  .where((s) => s.isNotEmpty)
+                  .last
+                  .toLowerCase())
+              .toList();
+
+          if (existingNames.contains(fileName.toLowerCase())) {
+            alreadyExists = true;
+            createError = null;
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          final newFile = File(
+            '${_mindmapsDirectory.path}${Platform.pathSeparator}$fileName',
+          );
+
+          try {
+            if (!_mindmapsDirectory.existsSync()) {
+              _mindmapsDirectory.createSync(recursive: true);
+            }
+            await newFile.writeAsString('{"nodes":[]}');
+          } on FileSystemException {
+            createError = 'Could not create mindmap file.';
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          if (!mounted) return;
+          Navigator.of(dialogContext).pop(true);
+        }
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: const Text('New Mindmap'),
+          content: TextField(
+            controller: _mindmapNameController,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: 'Mindmap name',
+              hintText: 'my-mindmap',
+              errorText: alreadyExists
+                  ? 'A mindmap with this name already exists.'
+                  : createError,
+            ),
+            onChanged: (_) {
+              if (alreadyExists) {
+                alreadyExists = false;
+                (dialogContext as Element).markNeedsBuild();
+              }
+              if (createError != null) {
+                createError = null;
+                (dialogContext as Element).markNeedsBuild();
+              }
+            },
+            onSubmitted: (_) async => tryCreate(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async => tryCreate(),
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldCreate == true) {
+      _loadMindmaps();
+    }
+  }
+
+  Future<void> _renameMindmap(File file) async {
+    var alreadyExists = false;
+    final currentName = file.path.split(Platform.pathSeparator).last;
+    // strip .json for display
+    final baseName = currentName.endsWith('.json')
+        ? currentName.substring(0, currentName.length - 5)
+        : currentName;
+    var nextName = baseName;
+
+    final shouldRename = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final dialogElement = dialogContext as Element;
+
+        Future<void> tryRename() async {
+          final raw = nextName.trim();
+          if (raw.isEmpty || raw == baseName) return;
+
+          if (raw.contains(RegExp(r'[<>:"/\\|?*]'))) {
+            alreadyExists = false;
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          final newFileName = raw.endsWith('.json') ? raw : '$raw.json';
+
+          final existingNames = _mindmapFiles
+              .map((f) => f.path
+                  .split(RegExp(r'[/\\]'))
+                  .where((s) => s.isNotEmpty)
+                  .last
+                  .toLowerCase())
+              .toList();
+
+          if (existingNames.contains(newFileName.toLowerCase()) &&
+              newFileName.toLowerCase() != currentName.toLowerCase()) {
+            alreadyExists = true;
+            if (dialogElement.mounted) dialogElement.markNeedsBuild();
+            return;
+          }
+
+          final newFile = File(
+            '${file.parent.path}${Platform.pathSeparator}$newFileName',
+          );
+
+          try {
+            await file.rename(newFile.path);
+          } on FileSystemException {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Could not rename mindmap.')),
+            );
+            return;
+          }
+
+          if (!context.mounted) return;
+          Navigator.of(dialogContext).pop(true);
+        }
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: const Text('Rename mindmap'),
+          content: TextFormField(
+            initialValue: baseName,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: 'Mindmap name',
+              errorText:
+                  alreadyExists ? 'A mindmap with this name already exists.' : null,
+            ),
+            onChanged: (value) {
+              nextName = value;
+              if (alreadyExists) {
+                alreadyExists = false;
+                if (dialogElement.mounted) dialogElement.markNeedsBuild();
+              }
+            },
+            onFieldSubmitted: (_) {
+              FocusScope.of(dialogContext).unfocus();
+              Future<void>.microtask(tryRename);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async => tryRename(),
+              child: const Text('Rename'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldRename == true && mounted) _loadMindmaps();
+  }
+
+  Future<void> _deleteMindmap(File file) async {
+    final name = file.path.split(Platform.pathSeparator).last;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+        title: const Text('Delete mindmap'),
+        content: Text('Delete "$name" permanently? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red[700]),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      if (file.existsSync()) await file.delete();
+    } on FileSystemException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not delete mindmap.')),
+      );
+      return;
+    }
+
+    if (mounted) _loadMindmaps();
+  }
+
+  void _loadMindmaps() {
+    if (!_mindmapsDirectory.existsSync()) {
+      _mindmapsDirectory.createSync(recursive: true);
+      setState(() {
+        _mindmapFiles = const [];
+      });
+      return;
+    }
+
+    final files =
+        _mindmapsDirectory
+            .listSync()
+            .whereType<File>()
+            .where((file) => file.path.toLowerCase().endsWith('.json'))
+            .toList()
+          ..sort((first, second) => first.path.compareTo(second.path));
+
+    setState(() {
+      _mindmapFiles = files;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.blueGrey[50],
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey[100],
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Mindmaps',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blueGrey[900],
+                          ),
+                        ),
+                        Spacer(),
+                        Text(
+                          '${_mindmapFiles.length} ${_mindmapFiles.length == 1 ? "file" : "files"}',
+                          style: TextStyle(
+                            color: Colors.blueGrey[700],
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(width: 18),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _createMindmap,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.add, color: Colors.blueGrey[900]),
+                          SizedBox(width: 8),
+                          Text(
+                            'New Mindmap',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 18),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _loadMindmaps,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.refresh, color: Colors.blueGrey[900]),
+                          SizedBox(width: 8),
+                          Text(
+                            'Refresh',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 17),
+            Expanded(
+              child: _mindmapFiles.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No mindmap JSON files found in mindmaps folder.',
+                        style: TextStyle(
+                          color: Colors.blueGrey[500],
+                          fontSize: 16,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _mindmapFiles.length,
+                      itemBuilder: (context, index) {
+                        final mindmapFile = _mindmapFiles[index];
+                        return MindmapTile(
+                          name: mindmapFile.path
+                              .split(Platform.pathSeparator)
+                              .last
+                              .split('.')
+                              .first,
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    Mindmap(mindmapFile: mindmapFile),
+                              ),
+                            ).then((_) => _loadMindmaps());
+                          },
+                          onRename: () => _renameMindmap(mindmapFile),
+                          onDelete: () => _deleteMindmap(mindmapFile),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+//mindmap list tile
+class MindmapTile extends StatelessWidget {
+  const MindmapTile({
+    super.key,
+    required this.name,
+    required this.onTap,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final String name;
+  final VoidCallback onTap;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Material(
+        color: Colors.blueGrey[300],
+        borderRadius: BorderRadius.circular(5),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(5),
+          onTap: onTap,
+          child: ListTile(
+            leading: Icon(Icons.map, color: Colors.white),
+            title: Text(
+              name,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.white),
+                  tooltip: 'Rename mindmap',
+                  onPressed: onRename,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.white),
+                  tooltip: 'Delete mindmap',
+                  onPressed: onDelete,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class database extends StatelessWidget {
+  const database({super.key, required this.projectName});
+
+  final String projectName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.blueGrey[50],
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey[100],
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(
+                      'Database',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueGrey[900],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 17),
+            Expanded(
+              child: Center(
+                child: Text(
+                  'No database content yet.',
+                  style: TextStyle(color: Colors.blueGrey[500], fontSize: 16),
+                ),
               ),
             ),
           ],

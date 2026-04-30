@@ -76,11 +76,26 @@ class _HomeState extends State<Home> {
                               Future<void> tryCreate() async {
                                 if (projectNameController.text.trim().isEmpty)
                                   return;
-                                if (projectFolders.any(
-                                  (folder) =>
-                                      folder.path.split('\\').last ==
-                                      projectNameController.text.trim(),
-                                )) {
+                                // Case-sensitive duplicate check: compare exact names from listing.
+                                final typedName = projectNameController.text
+                                    .trim();
+                                bool duplicateExists = false;
+                                try {
+                                  duplicateExists = contentFolder
+                                      .listSync()
+                                      .whereType<Directory>()
+                                      .any((folder) {
+                                        final name = folder.path
+                                            .split(RegExp(r'[/\\]'))
+                                            .where((s) => s.isNotEmpty)
+                                            .last;
+                                          return name.toLowerCase() ==
+                                            typedName.toLowerCase();
+                                      });
+                                } on FileSystemException {
+                                  // If listing fails, allow creation to proceed.
+                                }
+                                if (duplicateExists) {
                                   (dialogContext as Element).markNeedsBuild();
                                   setState(() {
                                     projectAlreadyExists = true;
@@ -93,6 +108,29 @@ class _HomeState extends State<Home> {
                                   );
                                   newProjectDir.createSync();
                                   projectFolders.add(newProjectDir);
+                                  //add default files to project
+                                  File(
+                                    '${newProjectDir.path}/README.md',
+                                  ).writeAsStringSync(
+                                    '# ${projectNameController.text}\n\nProject description goes here.',
+                                  );
+                                  File(
+                                    '${newProjectDir.path}/.gitignore',
+                                  ).writeAsStringSync(
+                                    'bin/\nbuild/\n.idea/\n.vscode/\n*.iml\n',
+                                  );
+                                  Directory(
+                                    '${newProjectDir.path}/Files',
+                                  ).createSync();
+                                  Directory(
+                                    '${newProjectDir.path}/MindMaps',
+                                  ).createSync();
+                                  Directory(
+                                    '${newProjectDir.path}/Database',
+                                  ).createSync();
+                                  Directory(
+                                    '${newProjectDir.path}/Collaborators',
+                                  ).createSync();
                                 });
                                 loadProjects();
                                 Navigator.of(dialogContext).pop();
@@ -167,7 +205,7 @@ class _HomeState extends State<Home> {
                                       builder: (context) => Project(
                                         projectFolder: projectFolders[index],
                                         projectName: projectFolders[index].path
-                                            .split('\\')
+                                            .split(Platform.pathSeparator)
                                             .last,
                                       ),
                                     ),
