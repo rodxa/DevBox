@@ -6,10 +6,10 @@ import 'package:flutter/material.dart';
 
 class Project extends StatefulWidget {
   const Project({
-    Key? key,
+    super.key,
     required this.projectFolder,
     required this.projectName,
-  }) : super(key: key);
+  });
   final Directory projectFolder;
   final String projectName;
 
@@ -25,24 +25,6 @@ class _ProjectState extends State<Project> {
     );
     if (!mindmapsFolder.existsSync()) {
       return;
-    }
-
-    final mindmapFiles = mindmapsFolder
-        .listSync()
-        .whereType<File>()
-        .where((file) => file.path.endsWith('.json'))
-        .toList();
-
-    // Load each mindmap file and add it to the state
-    for (final file in mindmapFiles) {
-      // Here you would parse the JSON and create your MindMap objects
-      // For example:
-      // final jsonContent = file.readAsStringSync();
-      // final mindMapData = jsonDecode(jsonContent);
-      // final mindMap = MindMap.fromJson(mindMapData);
-      // setState(() {
-      //   _mindMaps.add(mindMap);
-      // });
     }
   }
 
@@ -269,6 +251,7 @@ class DevBoxProjectButton extends StatelessWidget {
             148,
             160,
             180,
+          // ignore: deprecated_member_use
           ).withOpacity(0.3),
           onTap: () {
             onTap();
@@ -299,6 +282,7 @@ class DevBoxProjectButton extends StatelessWidget {
   }
 }
 
+// ignore: non_constant_identifier_names
 Widget Dashboard(String projectName) {
   return Container(
     color: Colors.blueGrey[50],
@@ -486,19 +470,17 @@ class _FilesState extends State<Files> {
   List<File> _filesInCurrentPath() {
     try {
       if (!_directoryExists(_currentDirectory)) return const [];
-      return Directory(_ioPath(_currentDirectory.path))
-          .listSync()
-          .whereType<File>()
-          .map((f) {
-            var path = f.path;
-            if (Platform.isWindows && path.startsWith('\\\\?\\UNC\\')) {
-              path = '\\\\${path.substring('\\\\?\\UNC\\'.length)}';
-            } else if (Platform.isWindows && path.startsWith('\\\\?\\')) {
-              path = path.substring('\\\\?\\'.length);
-            }
-            return File(path);
-          })
-          .toList()
+      return Directory(
+          _ioPath(_currentDirectory.path),
+        ).listSync().whereType<File>().map((f) {
+          var path = f.path;
+          if (Platform.isWindows && path.startsWith('\\\\?\\UNC\\')) {
+            path = '\\\\${path.substring('\\\\?\\UNC\\'.length)}';
+          } else if (Platform.isWindows && path.startsWith('\\\\?\\')) {
+            path = path.substring('\\\\?\\'.length);
+          }
+          return File(path);
+        }).toList()
         ..sort((a, b) => a.path.compareTo(b.path));
     } on FileSystemException {
       return const [];
@@ -577,11 +559,11 @@ class _FilesState extends State<Files> {
                 (d) => d.path
                     .split(RegExp(r'[/\\]'))
                     .where((s) => s.isNotEmpty)
-                      .last
-                      .toLowerCase(),
+                    .last
+                    .toLowerCase(),
               )
               .toList();
-            if (existingNames.contains(folderName.toLowerCase())) {
+          if (existingNames.contains(folderName.toLowerCase())) {
             folderAlreadyExists = true;
             folderCreateError = null;
             (dialogContext as Element).markNeedsBuild();
@@ -600,6 +582,7 @@ class _FilesState extends State<Files> {
             return;
           }
 
+          // ignore: use_build_context_synchronously
           Navigator.of(dialogContext).pop(true);
         }
 
@@ -708,6 +691,7 @@ class _FilesState extends State<Files> {
             if (!context.mounted) {
               return;
             }
+            // ignore: use_build_context_synchronously
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Could not rename folder.')),
             );
@@ -833,8 +817,7 @@ class _FilesState extends State<Files> {
     if (!_isWithinFilesRoot(targetFolder)) return;
 
     final name = sourcePath.split(Platform.pathSeparator).last;
-    final destPath =
-        '${targetFolder.path}${Platform.pathSeparator}$name';
+    final destPath = '${targetFolder.path}${Platform.pathSeparator}$name';
 
     // Already in this folder — nothing to do
     if (sourcePath == destPath) return;
@@ -989,9 +972,9 @@ class _FilesState extends State<Files> {
                       final dir = pathDirectories[i];
                       final src = details.data;
                       if (src == dir.path) return false;
-                      if (dir.path.startsWith(
-                        src + Platform.pathSeparator,
-                      )) return false;
+                      if (dir.path.startsWith(src + Platform.pathSeparator)) {
+                        return false;
+                      }
                       return _isWithinFilesRoot(dir);
                     },
                     onAcceptWithDetails: (details) =>
@@ -1004,14 +987,12 @@ class _FilesState extends State<Files> {
                                     .split(Platform.pathSeparator)
                                     .last,
                           isActive:
-                              pathDirectories[i].path ==
-                              _currentDirectory.path,
+                              pathDirectories[i].path == _currentDirectory.path,
                           isDropTarget: candidateData.isNotEmpty,
                           onTap: () => _openDirectory(pathDirectories[i]),
                         ),
                   ),
               ],
-
             ),
             SizedBox(height: 17),
             Expanded(
@@ -1038,8 +1019,9 @@ class _FilesState extends State<Files> {
                           if (index < folders.length) {
                             final folder = folders[index];
                             final folderPath = folder.path;
-                            final folderName =
-                                folderPath.split(Platform.pathSeparator).last;
+                            final folderName = folderPath
+                                .split(Platform.pathSeparator)
+                                .last;
                             return Draggable<String>(
                               data: folderPath,
                               dragAnchorStrategy: pointerDragAnchorStrategy,
@@ -1097,11 +1079,12 @@ class _FilesState extends State<Files> {
                                   if (src == folderPath) return false;
                                   if (folderPath.startsWith(
                                     src + Platform.pathSeparator,
-                                  )) return false;
-                                  final srcParent = (src
-                                          .split(Platform.pathSeparator)
-                                        ..removeLast())
-                                      .join(Platform.pathSeparator);
+                                  )) {
+                                    return false;
+                                  }
+                                  final srcParent = (src.split(
+                                    Platform.pathSeparator,
+                                  )..removeLast()).join(Platform.pathSeparator);
                                   return srcParent != folderPath;
                                 },
                                 onAcceptWithDetails: (details) =>
@@ -1112,20 +1095,18 @@ class _FilesState extends State<Files> {
                                           name: folderName,
                                           isDropTarget:
                                               candidateData.isNotEmpty,
-                                          onTap: () =>
-                                              _openDirectory(folder),
-                                          onRename: () =>
-                                              _renameFolder(folder),
-                                          onDelete: () =>
-                                              _deleteFolder(folder),
+                                          onTap: () => _openDirectory(folder),
+                                          onRename: () => _renameFolder(folder),
+                                          onDelete: () => _deleteFolder(folder),
                                         ),
                               ),
                             );
                           }
                           final file = files[index - folders.length];
                           final filePath = file.path;
-                          final fileName =
-                              filePath.split(Platform.pathSeparator).last;
+                          final fileName = filePath
+                              .split(Platform.pathSeparator)
+                              .last;
                           return Draggable<String>(
                             data: filePath,
                             dragAnchorStrategy: pointerDragAnchorStrategy,
@@ -1219,9 +1200,9 @@ class _FilesState extends State<Files> {
       if (file.existsSync()) await file.delete();
     } on FileSystemException {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not delete file.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not delete file.')));
       return;
     }
 
@@ -1900,11 +1881,13 @@ class _MindMapsState extends State<MindMaps> {
               : '$rawName.json';
 
           final existingNames = _mindmapFiles
-              .map((f) => f.path
-                  .split(RegExp(r'[/\\]'))
-                  .where((s) => s.isNotEmpty)
-                  .last
-                  .toLowerCase())
+              .map(
+                (f) => f.path
+                    .split(RegExp(r'[/\\]'))
+                    .where((s) => s.isNotEmpty)
+                    .last
+                    .toLowerCase(),
+              )
               .toList();
 
           if (existingNames.contains(fileName.toLowerCase())) {
@@ -1930,6 +1913,7 @@ class _MindMapsState extends State<MindMaps> {
           }
 
           if (!mounted) return;
+          // ignore: use_build_context_synchronously
           Navigator.of(dialogContext).pop(true);
         }
 
@@ -1998,18 +1982,20 @@ class _MindMapsState extends State<MindMaps> {
 
           if (raw.contains(RegExp(r'[<>:"/\\|?*]'))) {
             alreadyExists = false;
-            (dialogContext as Element).markNeedsBuild();
+            (dialogContext).markNeedsBuild();
             return;
           }
 
           final newFileName = raw.endsWith('.json') ? raw : '$raw.json';
 
           final existingNames = _mindmapFiles
-              .map((f) => f.path
-                  .split(RegExp(r'[/\\]'))
-                  .where((s) => s.isNotEmpty)
-                  .last
-                  .toLowerCase())
+              .map(
+                (f) => f.path
+                    .split(RegExp(r'[/\\]'))
+                    .where((s) => s.isNotEmpty)
+                    .last
+                    .toLowerCase(),
+              )
               .toList();
 
           if (existingNames.contains(newFileName.toLowerCase()) &&
@@ -2027,6 +2013,7 @@ class _MindMapsState extends State<MindMaps> {
             await file.rename(newFile.path);
           } on FileSystemException {
             if (!context.mounted) return;
+            // ignore: use_build_context_synchronously
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Could not rename mindmap.')),
             );
@@ -2046,8 +2033,9 @@ class _MindMapsState extends State<MindMaps> {
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(
               labelText: 'Mindmap name',
-              errorText:
-                  alreadyExists ? 'A mindmap with this name already exists.' : null,
+              errorText: alreadyExists
+                  ? 'A mindmap with this name already exists.'
+                  : null,
             ),
             onChanged: (value) {
               nextName = value;
@@ -2268,12 +2256,14 @@ class _MindMapsState extends State<MindMaps> {
                               .split('.')
                               .first,
                           onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    Mindmap(mindmapFile: mindmapFile),
-                              ),
-                            ).then((_) => _loadMindmaps());
+                            Navigator.of(context)
+                                .push(
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        Mindmap(mindmapFile: mindmapFile),
+                                  ),
+                                )
+                                .then((_) => _loadMindmaps());
                           },
                           onRename: () => _renameMindmap(mindmapFile),
                           onDelete: () => _deleteMindmap(mindmapFile),
@@ -2344,6 +2334,7 @@ class MindmapTile extends StatelessWidget {
   }
 }
 
+// ignore: camel_case_types
 class database extends StatelessWidget {
   const database({super.key, required this.projectName});
 
