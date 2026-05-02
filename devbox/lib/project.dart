@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:devbox/globals.dart';
@@ -186,7 +187,10 @@ class _ProjectState extends State<Project> {
                     if (value == 3) {
                       return KeyedSubtree(
                         key: const ValueKey('project-collaborators'),
-                        child: Collaborators(projectName: widget.projectName),
+                        child: Collaborators(
+                          projectName: widget.projectName,
+                          projectFolder: widget.projectFolder,
+                        ),
                       );
                     }
                     if (value == 4) {
@@ -1341,9 +1345,14 @@ class FileButton extends StatelessWidget {
 }
 
 class Collaborators extends StatefulWidget {
-  const Collaborators({super.key, required this.projectName});
+  const Collaborators({
+    super.key,
+    required this.projectName,
+    required this.projectFolder,
+  });
 
   final String projectName;
+  final Directory projectFolder;
 
   @override
   State<Collaborators> createState() => _CollaboratorsState();
@@ -1351,24 +1360,98 @@ class Collaborators extends StatefulWidget {
 
 class _CollaboratorsState extends State<Collaborators> {
   final TextEditingController _nameController = TextEditingController();
-  final List<String> _collaborators = [];
+  final TextEditingController _emailController = TextEditingController();
+  final List<Map<String, String>> _collaborators = [];
+  bool _nameAlreadyExists = false;
+  bool _emailAlreadyExists = false;
+
+  File get _jsonFile => File(
+    '${widget.projectFolder.path}${Platform.pathSeparator}Collaborators${Platform.pathSeparator}collaborators.json',
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCollaborators();
+  }
+
+  void _loadCollaborators() {
+    try {
+      if (!_jsonFile.existsSync()) return;
+      final content = _jsonFile.readAsStringSync();
+      final decoded = jsonDecode(content) as Map<String, dynamic>;
+      final list = decoded['collaborators'] as List<dynamic>?;
+      if (list == null) return;
+      setState(() {
+        _collaborators.clear();
+        for (final item in list) {
+          if (item is Map<String, dynamic>) {
+            _collaborators.add({
+              'name': item['name']?.toString() ?? '',
+              'email': item['email']?.toString() ?? '',
+            });
+          }
+        }
+      });
+    } on FileSystemException {
+      // ignore read errors
+    } on FormatException {
+      // ignore malformed JSON
+    }
+  }
+
+  void _saveCollaborators() {
+    try {
+      final dir = _jsonFile.parent;
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final encoded = jsonEncode({
+        'collaborators': _collaborators,
+      });
+      _jsonFile.writeAsStringSync(encoded);
+    } on FileSystemException {
+      // ignore write errors
+    }
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
   void _addCollaborator() {
     final name = _nameController.text.trim();
-    if (name.isEmpty) {
+    final email = _emailController.text.trim();
+
+    if (name.isEmpty) return;
+
+    final nameTaken = _collaborators.any(
+      (c) => c['name']?.toLowerCase() == name.toLowerCase(),
+    );
+    final emailTaken = email.isNotEmpty &&
+        _collaborators.any(
+          (c) =>
+              c['email']?.isNotEmpty == true &&
+              c['email']?.toLowerCase() == email.toLowerCase(),
+        );
+
+    if (nameTaken || emailTaken) {
+      setState(() {
+        _nameAlreadyExists = nameTaken;
+        _emailAlreadyExists = emailTaken;
+      });
       return;
     }
 
     setState(() {
-      _collaborators.add(name);
+      _nameAlreadyExists = false;
+      _emailAlreadyExists = false;
+      _collaborators.add({'name': name, 'email': email});
       _nameController.clear();
+      _emailController.clear();
     });
+    _saveCollaborators();
   }
 
   @override
@@ -1408,24 +1491,81 @@ class _CollaboratorsState extends State<Collaborators> {
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _nameController,
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: Colors.white,
-                      hintText: 'Collaborator name',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(5),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _nameController,
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.white,
+                            hintText: 'Name',
+                            errorText: _nameAlreadyExists
+                                ? 'Name already in use.'
+                                : null,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                          ),
+                          onChanged: (_) {
+                            if (_nameAlreadyExists) {
+                              setState(() => _nameAlreadyExists = false);
+                            }
+                          },
+                        ),
                       ),
-                    ),
-                    onSubmitted: (_) => _addCollaborator(),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _emailController,
+                          textInputAction: TextInputAction.done,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.white,
+                            hintText: 'Email',
+                            errorText: _emailAlreadyExists
+                                ? 'Email already in use.'
+                                : null,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                          ),
+                          onChanged: (_) {
+                            if (_emailAlreadyExists) {
+                              setState(() => _emailAlreadyExists = false);
+                            }
+                          },
+                          onSubmitted: (_) => _addCollaborator(),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 SizedBox(width: 10),
-                FilledButton(
-                  onPressed: _addCollaborator,
-                  child: const Text('Add'),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _addCollaborator,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Text(
+                        'Add',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueGrey[900],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1445,14 +1585,73 @@ class _CollaboratorsState extends State<Collaborators> {
                       itemCount: _collaborators.length,
                       itemBuilder: (context, index) {
                         final collaborator = _collaborators[index];
-                        return Card(
-                          color: Colors.white,
-                          child: ListTile(
-                            leading: Icon(
-                              Icons.person,
-                              color: Colors.blueGrey[700],
+                        final email = collaborator['email'] ?? '';
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2.0),
+                          child: Material(
+                            color: Colors.blueGrey[200],
+                            borderRadius: BorderRadius.circular(5),
+                            child: ListTile(
+                              leading: Icon(
+                                Icons.person,
+                                color: Colors.blueGrey[800],
+                              ),
+                              title: Text(
+                                collaborator['name'] ?? '',
+                                style: TextStyle(
+                                  color: Colors.blueGrey[900],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              subtitle: email.isNotEmpty
+                                  ? Text(
+                                      email,
+                                      style: TextStyle(
+                                        color: Colors.blueGrey[700],
+                                        fontSize: 13,
+                                      ),
+                                    )
+                                  : null,
+                              trailing: IconButton(
+                                icon: Icon(
+                                  Icons.delete,
+                                  color: Colors.blueGrey[700],
+                                ),
+                                tooltip: 'Remove collaborator',
+                                onPressed: () async {
+                                  final shouldDelete = await showDialog<bool>(
+                                    context: context,
+                                    builder: (dialogContext) => AlertDialog(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      title: const Text('Remove collaborator'),
+                                      content: Text(
+                                        'Remove "${collaborator['name']}" from collaborators?',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.of(dialogContext).pop(false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: Colors.red[700],
+                                          ),
+                                          onPressed: () => Navigator.of(dialogContext).pop(true),
+                                          child: const Text('Remove'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (shouldDelete != true) return;
+                                  setState(() {
+                                    _collaborators.removeAt(index);
+                                  });
+                                  _saveCollaborators();
+                                },
+                              ),
                             ),
-                            title: Text(collaborator),
                           ),
                         );
                       },
@@ -2238,7 +2437,7 @@ class _MindMapsState extends State<MindMaps> {
               child: _mindmapFiles.isEmpty
                   ? Center(
                       child: Text(
-                        'No mindmap JSON files found in mindmaps folder.',
+                        'No mindmaps yet.',
                         style: TextStyle(
                           color: Colors.blueGrey[500],
                           fontSize: 16,

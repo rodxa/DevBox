@@ -108,17 +108,8 @@ class _HomeState extends State<Home> {
                                   );
                                   newProjectDir.createSync();
                                   projectFolders.add(newProjectDir);
-                                  //add default files to project
-                                  File(
-                                    '${newProjectDir.path}/README.md',
-                                  ).writeAsStringSync(
-                                    '# ${projectNameController.text}\n\nProject description goes here.',
-                                  );
-                                  File(
-                                    '${newProjectDir.path}/.gitignore',
-                                  ).writeAsStringSync(
-                                    'bin/\nbuild/\n.idea/\n.vscode/\n*.iml\n',
-                                  );
+
+                                  //add default folders to project
                                   Directory(
                                     '${newProjectDir.path}/Files',
                                   ).createSync();
@@ -131,6 +122,25 @@ class _HomeState extends State<Home> {
                                   Directory(
                                     '${newProjectDir.path}/Collaborators',
                                   ).createSync();
+
+                                  //add default files to project
+                                  File(
+                                    '${newProjectDir.path}/README.md',
+                                  ).writeAsStringSync(
+                                    '# ${projectNameController.text}\n\nProject description goes here.',
+                                  );
+                                  File(
+                                    '${newProjectDir.path}/.gitignore',
+                                  ).writeAsStringSync(
+                                    'bin/\nbuild/\n.idea/\n.vscode/\n*.iml\n',
+                                  );
+                                  File(
+                                    '${newProjectDir.path}/Collaborators/collaborators.json',
+                                  ).writeAsStringSync(
+                                    // collaborator structure: { "collaborators": [ { "name": "Alice", "email": "alice@example.com" } ] }
+                                    '{\n  "collaborators": [{"name":"me", "email":"me@example.com"}]\n}\n',
+                                  );
+
                                 });
                                 loadProjects();
                                 Navigator.of(dialogContext).pop();
