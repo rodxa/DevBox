@@ -1632,7 +1632,7 @@ class _CollaboratorsState extends State<Collaborators> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
-                        vertical: 13,
+                        vertical: 15,
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,

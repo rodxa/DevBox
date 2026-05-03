@@ -192,9 +192,14 @@ Offset _nodeDotPosition(MindmapNode node, Offset canvasOffset) {
   );
 }
 
-// Compute the bezier control points for an edge between two node centers.
+// Compute the bezier control points for an edge between two rendered node bodies.
 // Returns (fromPt, cp1, cp2, toPt).
-_EdgePath _computeEdgePath(Offset fromCenter, Offset toCenter) {
+_EdgePath _computeEdgePath(MindmapNode fromNode, MindmapNode toNode) {
+  final fromRect = _nodeBodyRect(fromNode, Offset.zero);
+  final toRect = _nodeBodyRect(toNode, Offset.zero);
+  final fromCenter = fromRect.center;
+  final toCenter = toRect.center;
+
   final dx = toCenter.dx - fromCenter.dx;
   final dy = toCenter.dy - fromCenter.dy;
 
@@ -202,12 +207,24 @@ _EdgePath _computeEdgePath(Offset fromCenter, Offset toCenter) {
   final Offset toPt;
   if (dx.abs() >= dy.abs()) {
     final s = dx >= 0 ? 1.0 : -1.0;
-    fromPt = fromCenter + Offset(s * MindmapNode.nodeWidth / 2, 0);
-    toPt   = toCenter   + Offset(-s * MindmapNode.nodeWidth / 2, 0);
+    fromPt = Offset(
+      s > 0 ? fromRect.right : fromRect.left,
+      fromRect.center.dy,
+    );
+    toPt = Offset(
+      s > 0 ? toRect.left : toRect.right,
+      toRect.center.dy,
+    );
   } else {
     final s = dy >= 0 ? 1.0 : -1.0;
-    fromPt = fromCenter + Offset(0, s * MindmapNode.nodeHeight / 2);
-    toPt   = toCenter   + Offset(0, -s * MindmapNode.nodeHeight / 2);
+    fromPt = Offset(
+      fromRect.center.dx,
+      s > 0 ? fromRect.bottom : fromRect.top,
+    );
+    toPt = Offset(
+      toRect.center.dx,
+      s > 0 ? toRect.top : toRect.bottom,
+    );
   }
 
   final midX = (fromPt.dx + toPt.dx) / 2;
@@ -268,6 +285,8 @@ class _MindmapState extends State<Mindmap> {
   Offset _canvasOffset = Offset.zero;
   double _canvasScale = 1.0;
   Size _canvasSize = Size.zero;
+  Offset _lastSavedViewportOffset = Offset.zero;
+  double _lastSavedViewportScale = 1.0;
 
   bool _isMiddleDragging = false;
   int? _draggingNodeId;
@@ -336,6 +355,8 @@ class _MindmapState extends State<Mindmap> {
         for (final e in edgeList) _edges.add(MindmapEdge(fromId: e['fromId'] as int, toId: e['toId'] as int));
         _canvasOffset = loadedOffset;
         _canvasScale = loadedScale;
+        _lastSavedViewportOffset = loadedOffset;
+        _lastSavedViewportScale = loadedScale;
       });
       _loadImages();
     } catch (_) {}
@@ -354,13 +375,52 @@ class _MindmapState extends State<Mindmap> {
       };
       await widget.mindmapFile.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
       if (mounted) setState(() => _isDirty = false);
+      _lastSavedViewportOffset = _canvasOffset;
+      _lastSavedViewportScale = _canvasScale;
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
+  bool get _hasViewportChanges {
+    return (_canvasOffset - _lastSavedViewportOffset).distance > 0.01 ||
+        (_canvasScale - _lastSavedViewportScale).abs() > 0.0001;
+  }
+
+  Future<void> _saveViewportOnlyIfChanged() async {
+    if (!_hasViewportChanges) return;
+    try {
+      Map<String, dynamic> data = <String, dynamic>{};
+      if (widget.mindmapFile.existsSync()) {
+        final content = widget.mindmapFile.readAsStringSync();
+        if (content.trim().isNotEmpty) {
+          final decoded = jsonDecode(content);
+          if (decoded is Map<String, dynamic>) {
+            data = decoded;
+          }
+        }
+      }
+
+      data['viewport'] = {
+        'offset': {'x': _canvasOffset.dx, 'y': _canvasOffset.dy},
+        'scale': _canvasScale,
+      };
+
+      if (!data.containsKey('nodes')) data['nodes'] = const [];
+      if (!data.containsKey('edges')) data['edges'] = const [];
+
+      await widget.mindmapFile.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+      _lastSavedViewportOffset = _canvasOffset;
+      _lastSavedViewportScale = _canvasScale;
+    } catch (_) {}
+  }
+
   Future<void> _maybeLeave() async {
-    if (!_isDirty) { Navigator.of(context).pop(); return; }
+    if (!_isDirty) {
+      await _saveViewportOnlyIfChanged();
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -375,8 +435,13 @@ class _MindmapState extends State<Mindmap> {
       ),
     );
     if (!mounted) return;
-    if (result == 'save') { await _saveToFile(); if (mounted) Navigator.of(context).pop(); }
-    else if (result == 'discard') { Navigator.of(context).pop(); }
+    if (result == 'save') {
+      await _saveToFile();
+      if (mounted) Navigator.of(context).pop();
+    } else if (result == 'discard') {
+      await _saveViewportOnlyIfChanged();
+      if (mounted) Navigator.of(context).pop();
+    }
   }
 
   // ── Node editing dialogs ───────────────────────────────────────────────────
@@ -980,7 +1045,7 @@ if ($d.ShowDialog() -eq "OK") { Write-Output $d.FileName }
       final from = nodeById[edge.fromId];
       final to   = nodeById[edge.toId];
       if (from == null || to == null) continue;
-      final ep = _computeEdgePath(from.position, to.position);
+      final ep = _computeEdgePath(from, to);
       final d = ep.minDistanceTo(localPos);
       if (d < bestDist) { bestDist = d; best = edge; }
     }
@@ -1068,16 +1133,23 @@ if ($d.ShowDialog() -eq "OK") { Write-Output $d.FileName }
                       ),
                     ),
                   ),
-                  Container(
-                    margin: const EdgeInsets.all(8),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: Colors.blueGrey[700], borderRadius: BorderRadius.circular(5)),
-                    child: const Text(
-                      'Drag the  ●  dot on a node\nto connect it to another.\nUse mouse wheel to zoom.\nRight-click for options.',
-                      style: TextStyle(color: Colors.white60, fontSize: 11),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(color: Colors.blueGrey[700], borderRadius: BorderRadius.circular(5)),
+                            child: const Text(
+                              'Drag the  ●  dot on a node\nto connect it to another.\nUse mouse wheel to zoom.\nRight-click for options.',
+                              style: TextStyle(color: Colors.white60, fontSize: 11),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
                 ],
               ),
             ),
@@ -1326,7 +1398,7 @@ class CanvasPainter extends CustomPainter {
       final from = nodeById[edge.fromId];
       final to   = nodeById[edge.toId];
       if (from == null || to == null) continue;
-      _drawEdge(canvas, from.position, to.position);
+      _drawEdge(canvas, from, to);
     }
 
     // In-progress drag edge — from the dot to the cursor
@@ -1372,14 +1444,46 @@ class CanvasPainter extends CustomPainter {
     }
   }
 
-  void _drawEdge(Canvas canvas, Offset fromCenter, Offset toCenter) {
-    final ep = _computeEdgePath(fromCenter, toCenter);
+  void _drawEdge(Canvas canvas, MindmapNode fromNode, MindmapNode toNode) {
+    final ep = _computeEdgePath(fromNode, toNode);
     canvas.drawPath(ep.toPath(), Paint()
       ..color = const Color(0xFF90A4AE)
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round);
-    _drawArrowhead(canvas, ep.cp2, ep.toPt);
+
+    final mid = _pointOnCubic(ep, 0.5);
+    final tangent = _tangentOnCubic(ep, 0.5);
+    if (tangent.distanceSquared > 0.0001) {
+      final dir = tangent / tangent.distance;
+      _drawArrowhead(canvas, mid - dir * 10, mid);
+    }
+  }
+
+  Offset _pointOnCubic(_EdgePath ep, double t) {
+    final mt = 1 - t;
+    return Offset(
+      mt * mt * mt * ep.fromPt.dx +
+          3 * mt * mt * t * ep.cp1.dx +
+          3 * mt * t * t * ep.cp2.dx +
+          t * t * t * ep.toPt.dx,
+      mt * mt * mt * ep.fromPt.dy +
+          3 * mt * mt * t * ep.cp1.dy +
+          3 * mt * t * t * ep.cp2.dy +
+          t * t * t * ep.toPt.dy,
+    );
+  }
+
+  Offset _tangentOnCubic(_EdgePath ep, double t) {
+    final mt = 1 - t;
+    return Offset(
+      3 * mt * mt * (ep.cp1.dx - ep.fromPt.dx) +
+          6 * mt * t * (ep.cp2.dx - ep.cp1.dx) +
+          3 * t * t * (ep.toPt.dx - ep.cp2.dx),
+      3 * mt * mt * (ep.cp1.dy - ep.fromPt.dy) +
+          6 * mt * t * (ep.cp2.dy - ep.cp1.dy) +
+          3 * t * t * (ep.toPt.dy - ep.cp2.dy),
+    );
   }
 
   void _drawDashedPath(Canvas canvas, Path path, Paint paint) {
@@ -1401,14 +1505,14 @@ class CanvasPainter extends CustomPainter {
   }
 
   void _drawArrowhead(Canvas canvas, Offset from, Offset to) {
-    const sz = 8.0;
+    const sz = 10.0;
     final angle = math.atan2(to.dy - from.dy, to.dx - from.dx);
     final path = Path()
       ..moveTo(to.dx, to.dy)
-      ..lineTo(to.dx - sz * math.cos(angle - 0.4), to.dy - sz * math.sin(angle - 0.4))
+      ..lineTo(to.dx - sz * math.cos(angle - 0.7), to.dy - sz * math.sin(angle - 0.7))
       ..moveTo(to.dx, to.dy)
-      ..lineTo(to.dx - sz * math.cos(angle + 0.4), to.dy - sz * math.sin(angle + 0.4));
-    canvas.drawPath(path, Paint()..color = const Color(0xFF90A4AE)..strokeWidth = 2..style = PaintingStyle.stroke..strokeCap = StrokeCap.round);
+      ..lineTo(to.dx - sz * math.cos(angle + 0.7), to.dy - sz * math.sin(angle + 0.7));
+    canvas.drawPath(path, Paint()..color = const Color(0xFF90A4AE)..strokeWidth = 3..style = PaintingStyle.stroke..strokeCap = StrokeCap.round);
   }
 
   void _drawNode(Canvas canvas, MindmapNode node, Size canvasSize) {
@@ -1544,11 +1648,12 @@ class CanvasPainter extends CustomPainter {
     if (img != null) {
       canvas.save();
       canvas.clipRRect(RRect.fromRectAndRadius(rect, const Radius.circular(5)));
+      // Keep full image visible inside the node bounds instead of cropping.
       paintImage(
         canvas: canvas,
         rect: rect,
         image: img,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         filterQuality: FilterQuality.low,
       );
       canvas.restore();
