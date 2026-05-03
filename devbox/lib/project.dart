@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:devbox/database.dart';
 import 'package:devbox/globals.dart';
 import 'package:devbox/mindmap.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -1026,6 +1027,39 @@ class _FilesState extends State<Files> {
                           SizedBox(width: 8),
                           Text(
                             'New Folder',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 18),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: () {
+                      setState(() {});
+                    },
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.refresh, color: Colors.blueGrey[900]),
+                          SizedBox(width: 8),
+                          Text(
+                            'Refresh',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -2781,6 +2815,7 @@ class database extends StatefulWidget {
 // ignore: camel_case_types
 class _databaseState extends State<database> {
   late final Directory _databaseDirectory;
+  List<File> _databaseFiles = const [];
 
   @override
   void initState() {
@@ -2788,6 +2823,29 @@ class _databaseState extends State<database> {
     _databaseDirectory = Directory(
       '${widget.projectFolder.path}${Platform.pathSeparator}Database',
     );
+    _loadDatabaseFiles();
+  }
+
+  void _loadDatabaseFiles() {
+    if (!_databaseDirectory.existsSync()) {
+      _databaseDirectory.createSync(recursive: true);
+      setState(() {
+        _databaseFiles = const [];
+      });
+      return;
+    }
+
+    final files =
+        _databaseDirectory
+            .listSync()
+            .whereType<File>()
+            .where((file) => file.path.toLowerCase().endsWith('.json'))
+            .toList()
+          ..sort((first, second) => first.path.compareTo(second.path));
+
+    setState(() {
+      _databaseFiles = files;
+    });
   }
 
   Future<void> _createDatabaseFile() async {
@@ -2834,6 +2892,7 @@ class _databaseState extends State<database> {
           // ignore: use_build_context_synchronously
           Navigator.of(dialogContext).pop(true);
         }
+        
 
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
@@ -2878,10 +2937,17 @@ class _databaseState extends State<database> {
     nameCtrl.dispose();
 
     if (shouldCreate == true && mounted) {
+      _loadDatabaseFiles();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Database file created.')),
       );
     }
+  }
+
+  Future<void> _connectToDatabase() async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Connect to database not implemented yet.')),
+    );
   }
 
   @override
@@ -2934,7 +3000,70 @@ class _databaseState extends State<database> {
                           Icon(Icons.add, color: Colors.blueGrey[900]),
                           SizedBox(width: 8),
                           Text(
-                            'Create Database',
+                            'Create Local Database',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                
+                SizedBox(width: 18),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _connectToDatabase,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.link, color: Colors.blueGrey[900]),
+                          SizedBox(width: 8),
+                          Text(
+                            'Connect to Database',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 18),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _loadDatabaseFiles,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.refresh, color: Colors.blueGrey[900]),
+                          SizedBox(width: 8),
+                          Text(
+                            'Refresh',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -2950,12 +3079,52 @@ class _databaseState extends State<database> {
             ),
             SizedBox(height: 17),
             Expanded(
-              child: Center(
-                child: Text(
-                  'No database content yet.',
-                  style: TextStyle(color: Colors.blueGrey[500], fontSize: 16),
-                ),
-              ),
+              child: _databaseFiles.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No database files yet.',
+                        style: TextStyle(
+                          color: Colors.blueGrey[500],
+                          fontSize: 16,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _databaseFiles.length,
+                      itemBuilder: (context, index) {
+                        final file = _databaseFiles[index];
+                        final fileName = file.path
+                            .split(Platform.pathSeparator)
+                            .last;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2.0),
+                          child: Material(
+                            color: Colors.blueGrey[300],
+                            borderRadius: BorderRadius.circular(5),
+                            child: ListTile(
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => Database(databaseFile: file.path),
+                                  ),
+                                );
+                              },
+                              leading: Icon(
+                                Icons.storage,
+                                color: Colors.white,
+                              ),
+                              title: Text(
+                                fileName,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
