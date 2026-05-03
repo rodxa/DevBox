@@ -1359,11 +1359,7 @@ class Collaborators extends StatefulWidget {
 }
 
 class _CollaboratorsState extends State<Collaborators> {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
   final List<Map<String, String>> _collaborators = [];
-  bool _nameAlreadyExists = false;
-  bool _emailAlreadyExists = false;
 
   File get _jsonFile => File(
     '${widget.projectFolder.path}${Platform.pathSeparator}Collaborators${Platform.pathSeparator}collaborators.json',
@@ -1389,6 +1385,9 @@ class _CollaboratorsState extends State<Collaborators> {
             _collaborators.add({
               'name': item['name']?.toString() ?? '',
               'email': item['email']?.toString() ?? '',
+              'role': item['role']?.toString() ?? '',
+              'github': item['github']?.toString() ?? '',
+              'pay': item['pay']?.toString() ?? '',
             });
           }
         }
@@ -1413,45 +1412,181 @@ class _CollaboratorsState extends State<Collaborators> {
     }
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    super.dispose();
-  }
-
-  void _addCollaborator() {
-    final name = _nameController.text.trim();
-    final email = _emailController.text.trim();
-
-    if (name.isEmpty) return;
-
-    final nameTaken = _collaborators.any(
-      (c) => c['name']?.toLowerCase() == name.toLowerCase(),
+  Future<void> _showCollaboratorDialog({int? editIndex}) async {
+    final isEditing = editIndex != null;
+    final nameCtrl = TextEditingController(
+      text: isEditing ? _collaborators[editIndex]['name'] : '',
     );
-    final emailTaken = email.isNotEmpty &&
-        _collaborators.any(
-          (c) =>
-              c['email']?.isNotEmpty == true &&
-              c['email']?.toLowerCase() == email.toLowerCase(),
+    final emailCtrl = TextEditingController(
+      text: isEditing ? _collaborators[editIndex]['email'] : '',
+    );
+    final roleCtrl = TextEditingController(
+      text: isEditing ? _collaborators[editIndex]['role'] : '',
+    );
+    final githubCtrl = TextEditingController(
+      text: isEditing ? _collaborators[editIndex]['github'] : '',
+    );
+    final payCtrl = TextEditingController(
+      text: isEditing ? _collaborators[editIndex]['pay'] : '',
+    );
+
+    String? nameError;
+    String? emailError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void trySubmit() {
+              final name = nameCtrl.text.trim();
+              final email = emailCtrl.text.trim();
+
+              if (name.isEmpty) {
+                setDialogState(() => nameError = 'Name is required.');
+                return;
+              }
+
+              final nameTaken = _collaborators.indexWhere(
+                (c) => c['name']?.toLowerCase() == name.toLowerCase(),
+              );
+              if (nameTaken != -1 && nameTaken != editIndex) {
+                setDialogState(() => nameError = 'Name already in use.');
+                return;
+              }
+
+              if (email.isNotEmpty) {
+                final emailTaken = _collaborators.indexWhere(
+                  (c) =>
+                      c['email']?.isNotEmpty == true &&
+                      c['email']?.toLowerCase() == email.toLowerCase(),
+                );
+                if (emailTaken != -1 && emailTaken != editIndex) {
+                  setDialogState(() => emailError = 'Email already in use.');
+                  return;
+                }
+              }
+
+              final entry = {
+                'name': name,
+                'email': email,
+                'role': roleCtrl.text.trim(),
+                'github': githubCtrl.text.trim(),
+                'pay': payCtrl.text.trim(),
+              };
+
+              setState(() {
+                if (isEditing) {
+                  _collaborators[editIndex] = entry;
+                } else {
+                  _collaborators.add(entry);
+                }
+              });
+              _saveCollaborators();
+              Navigator.of(dialogContext).pop();
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(5),
+              ),
+              title: Text(isEditing ? 'Edit Collaborator' : 'Add Collaborator'),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'Name',
+                        hintText: 'Full name',
+                        errorText: nameError,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                      ),
+                      onChanged: (_) {
+                        if (nameError != null) {
+                          setDialogState(() => nameError = null);
+                        }
+                      },
+                    ),
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: emailCtrl,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        hintText: 'email@example.com',
+                        errorText: emailError,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                      ),
+                      onChanged: (_) {
+                        if (emailError != null) {
+                          setDialogState(() => emailError = null);
+                        }
+                      },
+                    ),
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: roleCtrl,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'Role',
+                        hintText: 'e.g. Developer, Designer',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: githubCtrl,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'GitHub',
+                        hintText: 'GitHub username',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: payCtrl,
+                      textInputAction: TextInputAction.done,
+                      decoration: InputDecoration(
+                        labelText: 'Pay',
+                        hintText: 'e.g. 25/hr, 3000/mo',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                      ),
+                      onSubmitted: (_) => trySubmit(),
+                    ),
+                    
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: trySubmit,
+                  child: Text(isEditing ? 'Save' : 'Add'),
+                ),
+              ],
+            );
+          },
         );
-
-    if (nameTaken || emailTaken) {
-      setState(() {
-        _nameAlreadyExists = nameTaken;
-        _emailAlreadyExists = emailTaken;
-      });
-      return;
-    }
-
-    setState(() {
-      _nameAlreadyExists = false;
-      _emailAlreadyExists = false;
-      _collaborators.add({'name': name, 'email': email});
-      _nameController.clear();
-      _emailController.clear();
-    });
-    _saveCollaborators();
+      },
+    );
   }
 
   @override
@@ -1485,70 +1620,13 @@ class _CollaboratorsState extends State<Collaborators> {
                     ),
                   ),
                 ),
-              ],
-            ),
-            SizedBox(height: 17),
-            Row(
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _nameController,
-                          textInputAction: TextInputAction.next,
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: Colors.white,
-                            hintText: 'Name',
-                            errorText: _nameAlreadyExists
-                                ? 'Name already in use.'
-                                : null,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                          ),
-                          onChanged: (_) {
-                            if (_nameAlreadyExists) {
-                              setState(() => _nameAlreadyExists = false);
-                            }
-                          },
-                        ),
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _emailController,
-                          textInputAction: TextInputAction.done,
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: Colors.white,
-                            hintText: 'Email',
-                            errorText: _emailAlreadyExists
-                                ? 'Email already in use.'
-                                : null,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                          ),
-                          onChanged: (_) {
-                            if (_emailAlreadyExists) {
-                              setState(() => _emailAlreadyExists = false);
-                            }
-                          },
-                          onSubmitted: (_) => _addCollaborator(),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(width: 10),
+                SizedBox(width: 18),
                 Material(
                   color: Colors.blueGrey[100],
                   borderRadius: BorderRadius.circular(5),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(5),
-                    onTap: _addCollaborator,
+                    onTap: () => _showCollaboratorDialog(),
                     splashColor: Colors.blueGrey[200],
                     highlightColor: Colors.blueGrey[300],
                     child: Container(
@@ -1556,13 +1634,24 @@ class _CollaboratorsState extends State<Collaborators> {
                         horizontal: 14,
                         vertical: 13,
                       ),
-                      child: Text(
-                        'Add',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blueGrey[900],
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.person_add,
+                            size: 18,
+                            color: Colors.blueGrey[900],
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Add Collaborator',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -1586,6 +1675,15 @@ class _CollaboratorsState extends State<Collaborators> {
                       itemBuilder: (context, index) {
                         final collaborator = _collaborators[index];
                         final email = collaborator['email'] ?? '';
+                        final role = collaborator['role'] ?? '';
+                        final subtitle = [
+                          if (email.isNotEmpty) email,
+                          if (role.isNotEmpty) role,
+                          if (collaborator['github']?.isNotEmpty == true)
+                            '${collaborator['github']}',
+                          if (collaborator['pay']?.isNotEmpty == true)
+                            '${collaborator['pay']}',
+                        ].join('  •  ');
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2.0),
                           child: Material(
@@ -1603,22 +1701,33 @@ class _CollaboratorsState extends State<Collaborators> {
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              subtitle: email.isNotEmpty
+                              subtitle: subtitle.isNotEmpty
                                   ? Text(
-                                      email,
+                                      subtitle,
                                       style: TextStyle(
                                         color: Colors.blueGrey[700],
                                         fontSize: 13,
                                       ),
                                     )
                                   : null,
-                              trailing: IconButton(
-                                icon: Icon(
-                                  Icons.delete,
-                                  color: Colors.blueGrey[700],
-                                ),
-                                tooltip: 'Remove collaborator',
-                                onPressed: () async {
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.edit,
+                                      color: Colors.blueGrey[600],
+                                    ),
+                                    tooltip: 'Edit collaborator',
+                                    onPressed: () => _showCollaboratorDialog(editIndex: index),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.delete,
+                                      color: Colors.blueGrey[700],
+                                    ),
+                                    tooltip: 'Remove collaborator',
+                                    onPressed: () async {
                                   final shouldDelete = await showDialog<bool>(
                                     context: context,
                                     builder: (dialogContext) => AlertDialog(
@@ -1650,6 +1759,8 @@ class _CollaboratorsState extends State<Collaborators> {
                                   });
                                   _saveCollaborators();
                                 },
+                              ),
+                                ],
                               ),
                             ),
                           ),
