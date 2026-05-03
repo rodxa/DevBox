@@ -150,7 +150,7 @@ double _nodeExtraHeight(MindmapNode node) {
     return node.listItems.length * 20.0 + 8;
   }
   if (node.type == 'Image' && node.imagePath.isNotEmpty) {
-    return 80.0;
+    return 100;
   }
   if (node.type == 'Hyperlink') {
     return 48.0;
@@ -528,8 +528,9 @@ class _MindmapState extends State<Mindmap> {
   Future<void> _editHyperlinkNode(MindmapNode node) async {
     final index = _nodes.indexWhere((n) => n.id == node.id);
     if (index < 0) return;
+    final labelCtrl = TextEditingController(text: node.label);
     final urlCtrl = TextEditingController(text: node.hyperlinkUrl);
-    final labelCtrl = TextEditingController(text: node.hyperlinkLabel);
+    final urlLabelCtrl = TextEditingController(text: node.hyperlinkLabel);
     double hue = _initialHueForNode(node);
 
     await showDialog<void>(
@@ -544,6 +545,14 @@ class _MindmapState extends State<Mindmap> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
+                  controller: labelCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Node label',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
                   controller: urlCtrl,
                   decoration: const InputDecoration(
                     labelText: 'URL',
@@ -553,7 +562,7 @@ class _MindmapState extends State<Mindmap> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: labelCtrl,
+                  controller: urlLabelCtrl,
                   decoration: const InputDecoration(
                     labelText: 'URL label',
                     hintText: 'Open website',
@@ -570,8 +579,9 @@ class _MindmapState extends State<Mindmap> {
               onPressed: () {
                 final rawUrl = urlCtrl.text.trim();
                 setState(() {
+                  _nodes[index].label = labelCtrl.text.trim();
                   _nodes[index].hyperlinkUrl = rawUrl.isNotEmpty && !rawUrl.contains('://') ? 'https://$rawUrl' : rawUrl;
-                  _nodes[index].hyperlinkLabel = labelCtrl.text.trim();
+                  _nodes[index].hyperlinkLabel = urlLabelCtrl.text.trim();
                   _nodes[index].colorValue = _colorFromHue(hue).value;
                   _isDirty = true;
                 });
@@ -618,6 +628,25 @@ class _MindmapState extends State<Mindmap> {
     setState(() {
       _canvasScale = newScale;
       _canvasOffset = screenPos - worldUnderCursor * newScale;
+    });
+  }
+
+  void _recenterView() {
+    if (_nodes.isEmpty) return;
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = double.negativeInfinity, maxY = double.negativeInfinity;
+    for (final node in _nodes) {
+      final rect = _nodeBodyRect(node, Offset.zero);
+      if (rect.left < minX) minX = rect.left;
+      if (rect.top < minY) minY = rect.top;
+      if (rect.right > maxX) maxX = rect.right;
+      if (rect.bottom > maxY) maxY = rect.bottom;
+    }
+    final structureCenter = Offset((minX + maxX) / 2, (minY + maxY) / 2);
+    final screenCenter = Offset(_canvasSize.width / 2, _canvasSize.height / 2);
+    setState(() {
+      _canvasScale = 0.3;
+      _canvasOffset = screenCenter - structureCenter * _canvasScale;
     });
   }
 
@@ -1170,6 +1199,12 @@ if ($d.ShowDialog() -eq "OK") { Write-Output $d.FileName }
                         child: Row(
                           children: [
                             Expanded(child: Text('Mindmap Canvas', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blueGrey[900]))),
+                            IconButton(
+                              icon: const Icon(Icons.center_focus_strong),
+                              color: Colors.blueGrey[800],
+                              tooltip: 'Recenter view',
+                              onPressed: _recenterView,
+                            ),
                             _isSaving
                                 ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                                 : IconButton(icon: const Icon(Icons.save), color: Colors.blueGrey[800], tooltip: 'Save mindmap', onPressed: _saveToFile),

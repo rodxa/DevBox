@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:devbox/globals.dart';
 import 'package:devbox/mindmap.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 
 class Project extends StatefulWidget {
@@ -205,7 +206,10 @@ class _ProjectState extends State<Project> {
                     if (value == 5) {
                       return KeyedSubtree(
                         key: const ValueKey('project-database'),
-                        child: database(projectName: widget.projectName),
+                        child: database(
+                          projectName: widget.projectName,
+                          projectFolder: widget.projectFolder,
+                        ),
                       );
                     }
                     return KeyedSubtree(
@@ -255,7 +259,7 @@ class DevBoxProjectButton extends StatelessWidget {
             148,
             160,
             180,
-          // ignore: deprecated_member_use
+            // ignore: deprecated_member_use
           ).withOpacity(0.3),
           onTap: () {
             onTap();
@@ -357,6 +361,7 @@ class _FilesState extends State<Files> {
   late final Directory _filesRootDirectory;
   late Directory _currentDirectory;
   final TextEditingController _folderNameController = TextEditingController();
+  bool _isExternalDropActive = false;
 
   String _ioPath(String path) {
     if (!Platform.isWindows) {
@@ -817,6 +822,76 @@ class _FilesState extends State<Files> {
     setState(() {});
   }
 
+  Future<void> _handleExternalDrop(List<DropItem> droppedItems) async {
+    if (!_directoryExists(_currentDirectory)) {
+      return;
+    }
+
+    var copiedCount = 0;
+    var skippedExistingCount = 0;
+    var skippedNonFileCount = 0;
+    var failedCount = 0;
+
+    for (final item in droppedItems) {
+      final sourcePath = item.path;
+      if (sourcePath.isEmpty) {
+        skippedNonFileCount++;
+        continue;
+      }
+
+      final sourceFile = File(_ioPath(sourcePath));
+      if (!sourceFile.existsSync()) {
+        skippedNonFileCount++;
+        continue;
+      }
+
+      final name = sourcePath.split(RegExp(r'[/\\]')).last;
+      final destinationPath =
+          '${_currentDirectory.path}${Platform.pathSeparator}$name';
+
+      if (File(_ioPath(destinationPath)).existsSync() ||
+          Directory(_ioPath(destinationPath)).existsSync()) {
+        skippedExistingCount++;
+        continue;
+      }
+
+      try {
+        await sourceFile.copy(_ioPath(destinationPath));
+        copiedCount++;
+      } on FileSystemException {
+        failedCount++;
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (copiedCount > 0) {
+      setState(() {});
+    }
+
+    final messages = <String>[];
+    if (copiedCount > 0) {
+      messages.add('$copiedCount ${copiedCount == 1 ? 'file' : 'files'} added');
+    }
+    if (skippedExistingCount > 0) {
+      messages.add('$skippedExistingCount already existed');
+    }
+    if (skippedNonFileCount > 0) {
+      messages.add('$skippedNonFileCount skipped (not files)');
+    }
+    if (failedCount > 0) {
+      messages.add('$failedCount failed');
+    }
+
+    if (messages.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(messages.join(' • '))));
+    }
+  }
+
   Future<void> _moveItem(String sourcePath, Directory targetFolder) async {
     if (!_isWithinFilesRoot(targetFolder)) return;
 
@@ -1000,101 +1075,135 @@ class _FilesState extends State<Files> {
             ),
             SizedBox(height: 17),
             Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                transitionBuilder: (child, animation) {
-                  return FadeTransition(opacity: animation, child: child);
+              child: DropTarget(
+                onDragEntered: (_) {
+                  setState(() {
+                    _isExternalDropActive = true;
+                  });
                 },
-                child: totalItems == 0
-                    ? Center(
-                        key: contentKey,
-                        child: Text(
-                          'No files or folders here yet.',
-                          style: TextStyle(
-                            color: Colors.blueGrey[500],
-                            fontSize: 16,
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        key: contentKey,
-                        itemCount: totalItems,
-                        itemBuilder: (context, index) {
-                          if (index < folders.length) {
-                            final folder = folders[index];
-                            final folderPath = folder.path;
-                            final folderName = folderPath
-                                .split(Platform.pathSeparator)
-                                .last;
-                            return Draggable<String>(
-                              data: folderPath,
-                              dragAnchorStrategy: pointerDragAnchorStrategy,
-                              feedback: Transform.translate(
-                                offset: const Offset(-110, -20),
-                                child: Material(
-                                  elevation: 4,
-                                  borderRadius: BorderRadius.circular(5),
-                                  child: Container(
-                                    width: 220,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blueGrey[400],
+                onDragExited: (_) {
+                  setState(() {
+                    _isExternalDropActive = false;
+                  });
+                },
+                onDragDone: (details) async {
+                  setState(() {
+                    _isExternalDropActive = false;
+                  });
+                  await _handleExternalDrop(details.files);
+                },
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                      color: _isExternalDropActive
+                          ? Colors.blueGrey[700]!
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                    color: _isExternalDropActive
+                        ? Colors.blueGrey[100]
+                        : Colors.transparent,
+                  ),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(opacity: animation, child: child);
+                    },
+                    child: totalItems == 0
+                        ? Center(
+                            key: contentKey,
+                            child: Text(
+                              _isExternalDropActive
+                                  ? 'Drop files to add them here'
+                                  : 'No files or folders here yet.',
+                              style: TextStyle(
+                                color: Colors.blueGrey[500],
+                                fontSize: 16,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            key: contentKey,
+                            itemCount: totalItems,
+                            itemBuilder: (context, index) {
+                              if (index < folders.length) {
+                                final folder = folders[index];
+                                final folderPath = folder.path;
+                                final folderName = folderPath
+                                    .split(Platform.pathSeparator)
+                                    .last;
+                                return Draggable<String>(
+                                  data: folderPath,
+                                  dragAnchorStrategy: pointerDragAnchorStrategy,
+                                  feedback: Transform.translate(
+                                    offset: const Offset(-110, -20),
+                                    child: Material(
+                                      elevation: 4,
                                       borderRadius: BorderRadius.circular(5),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(
-                                          Icons.folder,
-                                          color: Colors.white,
-                                          size: 18,
+                                      child: Container(
+                                        width: 220,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 10,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            folderName,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
+                                        decoration: BoxDecoration(
+                                          color: Colors.blueGrey[400],
+                                          borderRadius: BorderRadius.circular(
+                                            5,
                                           ),
                                         ),
-                                      ],
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.folder,
+                                              color: Colors.white,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Flexible(
+                                              child: Text(
+                                                folderName,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                              childWhenDragging: Opacity(
-                                opacity: 0.4,
-                                child: FileButton(
-                                  name: folderName,
-                                  onTap: () {},
-                                  onRename: () {},
-                                  onDelete: () {},
-                                ),
-                              ),
-                              child: DragTarget<String>(
-                                onWillAcceptWithDetails: (details) {
-                                  final src = details.data;
-                                  if (src == folderPath) return false;
-                                  if (folderPath.startsWith(
-                                    src + Platform.pathSeparator,
-                                  )) {
-                                    return false;
-                                  }
-                                  final srcParent = (src.split(
-                                    Platform.pathSeparator,
-                                  )..removeLast()).join(Platform.pathSeparator);
-                                  return srcParent != folderPath;
-                                },
-                                onAcceptWithDetails: (details) =>
-                                    _moveItem(details.data, folder),
-                                builder:
-                                    (context, candidateData, rejectedData) =>
+                                  childWhenDragging: Opacity(
+                                    opacity: 0.4,
+                                    child: FileButton(
+                                      name: folderName,
+                                      onTap: () {},
+                                      onRename: () {},
+                                      onDelete: () {},
+                                    ),
+                                  ),
+                                  child: DragTarget<String>(
+                                    onWillAcceptWithDetails: (details) {
+                                      final src = details.data;
+                                      if (src == folderPath) return false;
+                                      if (folderPath.startsWith(
+                                        src + Platform.pathSeparator,
+                                      )) {
+                                        return false;
+                                      }
+                                      final srcParent =
+                                          (src.split(Platform.pathSeparator)
+                                                ..removeLast())
+                                              .join(Platform.pathSeparator);
+                                      return srcParent != folderPath;
+                                    },
+                                    onAcceptWithDetails: (details) =>
+                                        _moveItem(details.data, folder),
+                                    builder: (context, candidateData, _) =>
                                         FileButton(
                                           name: folderName,
                                           isDropTarget:
@@ -1103,70 +1212,72 @@ class _FilesState extends State<Files> {
                                           onRename: () => _renameFolder(folder),
                                           onDelete: () => _deleteFolder(folder),
                                         ),
-                              ),
-                            );
-                          }
-                          final file = files[index - folders.length];
-                          final filePath = file.path;
-                          final fileName = filePath
-                              .split(Platform.pathSeparator)
-                              .last;
-                          return Draggable<String>(
-                            data: filePath,
-                            dragAnchorStrategy: pointerDragAnchorStrategy,
-                            feedback: Transform.translate(
-                              offset: const Offset(-110, -20),
-                              child: Material(
-                                elevation: 4,
-                                borderRadius: BorderRadius.circular(5),
-                                child: Container(
-                                  width: 220,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blueGrey[300],
+                                );
+                              }
+                              final file = files[index - folders.length];
+                              final filePath = file.path;
+                              final fileName = filePath
+                                  .split(Platform.pathSeparator)
+                                  .last;
+                              return Draggable<String>(
+                                data: filePath,
+                                dragAnchorStrategy: pointerDragAnchorStrategy,
+                                feedback: Transform.translate(
+                                  offset: const Offset(-110, -20),
+                                  child: Material(
+                                    elevation: 4,
                                     borderRadius: BorderRadius.circular(5),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.insert_drive_file,
-                                        color: Colors.blueGrey[800],
-                                        size: 18,
+                                    child: Container(
+                                      width: 220,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
                                       ),
-                                      const SizedBox(width: 8),
-                                      Flexible(
-                                        child: Text(
-                                          fileName,
-                                          style: TextStyle(
-                                            color: Colors.blueGrey[900],
-                                            fontWeight: FontWeight.w500,
+                                      decoration: BoxDecoration(
+                                        color: Colors.blueGrey[300],
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.insert_drive_file,
+                                            color: Colors.blueGrey[800],
+                                            size: 18,
                                           ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: Text(
+                                              fileName,
+                                              style: TextStyle(
+                                                color: Colors.blueGrey[900],
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                            childWhenDragging: Opacity(
-                              opacity: 0.4,
-                              child: _FileItemTile(
-                                name: fileName,
-                                onDelete: () {},
-                              ),
-                            ),
-                            child: _FileItemTile(
-                              name: fileName,
-                              onDelete: () => _deleteFile(file),
-                            ),
-                          );
-                        },
-                      ),
+                                childWhenDragging: Opacity(
+                                  opacity: 0.4,
+                                  child: _FileItemTile(
+                                    name: fileName,
+                                    onDelete: () {},
+                                  ),
+                                ),
+                                child: _FileItemTile(
+                                  name: fileName,
+                                  onDelete: () => _deleteFile(file),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -1403,9 +1514,7 @@ class _CollaboratorsState extends State<Collaborators> {
     try {
       final dir = _jsonFile.parent;
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      final encoded = jsonEncode({
-        'collaborators': _collaborators,
-      });
+      final encoded = jsonEncode({'collaborators': _collaborators});
       _jsonFile.writeAsStringSync(encoded);
     } on FileSystemException {
       // ignore write errors
@@ -1568,7 +1677,6 @@ class _CollaboratorsState extends State<Collaborators> {
                       ),
                       onSubmitted: (_) => trySubmit(),
                     ),
-                    
                   ],
                 ),
               ),
@@ -1719,7 +1827,9 @@ class _CollaboratorsState extends State<Collaborators> {
                                       color: Colors.blueGrey[600],
                                     ),
                                     tooltip: 'Edit collaborator',
-                                    onPressed: () => _showCollaboratorDialog(editIndex: index),
+                                    onPressed: () => _showCollaboratorDialog(
+                                      editIndex: index,
+                                    ),
                                   ),
                                   IconButton(
                                     icon: Icon(
@@ -1728,38 +1838,47 @@ class _CollaboratorsState extends State<Collaborators> {
                                     ),
                                     tooltip: 'Remove collaborator',
                                     onPressed: () async {
-                                  final shouldDelete = await showDialog<bool>(
-                                    context: context,
-                                    builder: (dialogContext) => AlertDialog(
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(5),
-                                      ),
-                                      title: const Text('Remove collaborator'),
-                                      content: Text(
-                                        'Remove "${collaborator['name']}" from collaborators?',
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.of(dialogContext).pop(false),
-                                          child: const Text('Cancel'),
-                                        ),
-                                        FilledButton(
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: Colors.red[700],
+                                      final shouldDelete = await showDialog<bool>(
+                                        context: context,
+                                        builder: (dialogContext) => AlertDialog(
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              5,
+                                            ),
                                           ),
-                                          onPressed: () => Navigator.of(dialogContext).pop(true),
-                                          child: const Text('Remove'),
+                                          title: const Text(
+                                            'Remove collaborator',
+                                          ),
+                                          content: Text(
+                                            'Remove "${collaborator['name']}" from collaborators?',
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.of(
+                                                dialogContext,
+                                              ).pop(false),
+                                              child: const Text('Cancel'),
+                                            ),
+                                            FilledButton(
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor:
+                                                    Colors.red[700],
+                                              ),
+                                              onPressed: () => Navigator.of(
+                                                dialogContext,
+                                              ).pop(true),
+                                              child: const Text('Remove'),
+                                            ),
+                                          ],
                                         ),
-                                      ],
-                                    ),
-                                  );
-                                  if (shouldDelete != true) return;
-                                  setState(() {
-                                    _collaborators.removeAt(index);
-                                  });
-                                  _saveCollaborators();
-                                },
-                              ),
+                                      );
+                                      if (shouldDelete != true) return;
+                                      setState(() {
+                                        _collaborators.removeAt(index);
+                                      });
+                                      _saveCollaborators();
+                                    },
+                                  ),
                                 ],
                               ),
                             ),
@@ -2645,10 +2764,125 @@ class MindmapTile extends StatelessWidget {
 }
 
 // ignore: camel_case_types
-class database extends StatelessWidget {
-  const database({super.key, required this.projectName});
+class database extends StatefulWidget {
+  const database({
+    super.key,
+    required this.projectName,
+    required this.projectFolder,
+  });
 
   final String projectName;
+  final Directory projectFolder;
+
+  @override
+  State<database> createState() => _databaseState();
+}
+
+// ignore: camel_case_types
+class _databaseState extends State<database> {
+  late final Directory _databaseDirectory;
+
+  @override
+  void initState() {
+    super.initState();
+    _databaseDirectory = Directory(
+      '${widget.projectFolder.path}${Platform.pathSeparator}Database',
+    );
+  }
+
+  Future<void> _createDatabaseFile() async {
+    var alreadyExists = false;
+    String? createError;
+    final nameCtrl = TextEditingController();
+
+    final shouldCreate = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        Future<void> tryCreate() async {
+          final rawName = nameCtrl.text.trim();
+          if (rawName.isEmpty) return;
+
+          if (rawName.contains(RegExp(r'[<>:"/\\|?*]'))) {
+            createError = 'Name contains invalid characters.';
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          final fileName = rawName.endsWith('.json') ? rawName : '$rawName.json';
+          final filePath =
+              '${_databaseDirectory.path}${Platform.pathSeparator}$fileName';
+
+          if (File(filePath).existsSync()) {
+            alreadyExists = true;
+            createError = null;
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          try {
+            if (!_databaseDirectory.existsSync()) {
+              _databaseDirectory.createSync(recursive: true);
+            }
+            await File(filePath).writeAsString('{"tables":[]}');
+          } on FileSystemException {
+            createError = 'Could not create database file.';
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          if (!mounted) return;
+          // ignore: use_build_context_synchronously
+          Navigator.of(dialogContext).pop(true);
+        }
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: const Text('Create Database'),
+          content: TextField(
+            controller: nameCtrl,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: 'Database name',
+              hintText: 'my-database',
+              errorText: alreadyExists
+                  ? 'A database with this name already exists.'
+                  : createError,
+            ),
+            onChanged: (_) {
+              if (alreadyExists) {
+                alreadyExists = false;
+                (dialogContext as Element).markNeedsBuild();
+              }
+              if (createError != null) {
+                createError = null;
+                (dialogContext as Element).markNeedsBuild();
+              }
+            },
+            onSubmitted: (_) async => tryCreate(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async => tryCreate(),
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+
+    nameCtrl.dispose();
+
+    if (shouldCreate == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Database file created.')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2677,6 +2911,37 @@ class database extends StatelessWidget {
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                         color: Colors.blueGrey[900],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 18),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _createDatabaseFile,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.add, color: Colors.blueGrey[900]),
+                          SizedBox(width: 8),
+                          Text(
+                            'Create Database',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
