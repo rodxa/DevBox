@@ -1099,8 +1099,10 @@ class _FilesState extends State<Files> {
                               : pathDirectories[i].path
                                     .split(Platform.pathSeparator)
                                     .last,
-                          isActive:
-                              pathDirectories[i].path == _currentDirectory.path,
+                          isActive: _samePathIgnoringCase(
+                            pathDirectories[i].path,
+                            _currentDirectory.path,
+                          ),
                           isDropTarget: candidateData.isNotEmpty,
                           onTap: () => _openDirectory(pathDirectories[i]),
                         ),
@@ -1242,7 +1244,9 @@ class _FilesState extends State<Files> {
                                           name: folderName,
                                           isDropTarget:
                                               candidateData.isNotEmpty,
-                                          onTap: () => _openDirectory(folder),
+                                          onTap: () {
+                                            _openDirectory(folder);
+                                          },
                                           onRename: () => _renameFolder(folder),
                                           onDelete: () => _deleteFolder(folder),
                                         ),
@@ -2866,7 +2870,9 @@ class _databaseState extends State<database> {
             return;
           }
 
-          final fileName = rawName.endsWith('.json') ? rawName : '$rawName.json';
+          final fileName = rawName.endsWith('.json')
+              ? rawName
+              : '$rawName.json';
           final filePath =
               '${_databaseDirectory.path}${Platform.pathSeparator}$fileName';
 
@@ -2892,7 +2898,6 @@ class _databaseState extends State<database> {
           // ignore: use_build_context_synchronously
           Navigator.of(dialogContext).pop(true);
         }
-        
 
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
@@ -2938,9 +2943,9 @@ class _databaseState extends State<database> {
 
     if (shouldCreate == true && mounted) {
       _loadDatabaseFiles();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Database file created.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Database file created.')));
     }
   }
 
@@ -3012,7 +3017,7 @@ class _databaseState extends State<database> {
                     ),
                   ),
                 ),
-                
+
                 SizedBox(width: 18),
                 Material(
                   color: Colors.blueGrey[100],
@@ -3105,14 +3110,12 @@ class _databaseState extends State<database> {
                               onTap: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    builder: (context) => Database(databaseFile: file.path),
+                                    builder: (context) =>
+                                        Database(databaseFile: file.path),
                                   ),
                                 );
                               },
-                              leading: Icon(
-                                Icons.storage,
-                                color: Colors.white,
-                              ),
+                              leading: Icon(Icons.storage, color: Colors.white),
                               title: Text(
                                 fileName,
                                 style: TextStyle(

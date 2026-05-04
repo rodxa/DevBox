@@ -1135,7 +1135,7 @@ if ($d.ShowDialog() -eq "OK") { Write-Output $d.FileName }
                     child: Row(children: [
                       IconButton(icon: const Icon(Icons.arrow_back), color: Colors.white, onPressed: _maybeLeave),
                       const SizedBox(width: 8),
-                      const Expanded(child: Text('Mindmap', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                      Expanded(child: Text(widget.mindmapFile.uri.pathSegments.last.replaceAll(RegExp(r'\.[^.]+$'), ''), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
                     ]),
                   ),
                   Expanded(
