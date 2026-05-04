@@ -197,6 +197,27 @@ Win32Window::MessageHandler(HWND hwnd,
 
       return 0;
     }
+    case WM_GETMINMAXINFO: {
+      auto minmax_info = reinterpret_cast<MINMAXINFO*>(lparam);
+
+      HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+      double scale_factor = dpi / 96.0;
+
+      if (min_size_.has_value()) {
+        minmax_info->ptMinTrackSize.x =
+            Scale(min_size_->width, scale_factor);
+        minmax_info->ptMinTrackSize.y =
+            Scale(min_size_->height, scale_factor);
+      }
+      if (max_size_.has_value()) {
+        minmax_info->ptMaxTrackSize.x =
+            Scale(max_size_->width, scale_factor);
+        minmax_info->ptMaxTrackSize.y =
+            Scale(max_size_->height, scale_factor);
+      }
+      return 0;
+    }
     case WM_SIZE: {
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
@@ -261,6 +282,14 @@ HWND Win32Window::GetHandle() {
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
+}
+
+void Win32Window::SetMinSize(const Size& size) {
+  min_size_ = size;
+}
+
+void Win32Window::SetMaxSize(const Size& size) {
+  max_size_ = size;
 }
 
 bool Win32Window::OnCreate() {

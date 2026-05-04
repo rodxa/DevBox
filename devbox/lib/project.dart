@@ -3019,37 +3019,7 @@ class _databaseState extends State<database> {
                 ),
 
                 SizedBox(width: 18),
-                Material(
-                  color: Colors.blueGrey[100],
-                  borderRadius: BorderRadius.circular(5),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(5),
-                    onTap: _connectToDatabase,
-                    splashColor: Colors.blueGrey[200],
-                    highlightColor: Colors.blueGrey[300],
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 13,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.link, color: Colors.blueGrey[900]),
-                          SizedBox(width: 8),
-                          Text(
-                            'Connect to Database',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blueGrey[900],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(width: 18),
+
                 Material(
                   color: Colors.blueGrey[100],
                   borderRadius: BorderRadius.circular(5),

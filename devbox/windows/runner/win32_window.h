@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 // A class abstraction for a high DPI-aware Win32 Window. Intended to be
@@ -52,6 +53,12 @@ class Win32Window {
   // If true, closing this window will quit the application.
   void SetQuitOnClose(bool quit_on_close);
 
+  // Sets the minimum logical size the window can be resized to.
+  void SetMinSize(const Size& size);
+
+  // Sets the maximum logical size the window can be resized to.
+  void SetMaxSize(const Size& size);
+
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
@@ -97,6 +104,10 @@ class Win32Window {
 
   // window handle for hosted content.
   HWND child_content_ = nullptr;
+
+  // Optional resize constraints in logical pixels.
+  std::optional<Size> min_size_;
+  std::optional<Size> max_size_;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_
