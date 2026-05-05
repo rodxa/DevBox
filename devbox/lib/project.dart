@@ -2820,6 +2820,13 @@ class database extends StatefulWidget {
 class _databaseState extends State<database> {
   late final Directory _databaseDirectory;
   List<File> _databaseFiles = const [];
+  final TextEditingController _databaseNameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _databaseNameController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -2855,91 +2862,96 @@ class _databaseState extends State<database> {
   Future<void> _createDatabaseFile() async {
     var alreadyExists = false;
     String? createError;
-    final nameCtrl = TextEditingController();
+    _databaseNameController.clear();
 
     final shouldCreate = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        Future<void> tryCreate() async {
-          final rawName = nameCtrl.text.trim();
-          if (rawName.isEmpty) return;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> tryCreate() async {
+              final rawName = _databaseNameController.text.trim();
+              if (rawName.isEmpty) return;
 
-          if (rawName.contains(RegExp(r'[<>:"/\\|?*]'))) {
-            createError = 'Name contains invalid characters.';
-            (dialogContext as Element).markNeedsBuild();
-            return;
-          }
+              if (rawName.contains(RegExp(r'[<>:"/\\|?*]'))) {
+                setDialogState(() {
+                  createError = 'Name contains invalid characters.';
+                });
+                return;
+              }
 
-          final fileName = rawName.endsWith('.json')
-              ? rawName
-              : '$rawName.json';
-          final filePath =
-              '${_databaseDirectory.path}${Platform.pathSeparator}$fileName';
+              final fileName = rawName.endsWith('.json')
+                  ? rawName
+                  : '$rawName.json';
+              final filePath =
+                  '${_databaseDirectory.path}${Platform.pathSeparator}$fileName';
 
-          if (File(filePath).existsSync()) {
-            alreadyExists = true;
-            createError = null;
-            (dialogContext as Element).markNeedsBuild();
-            return;
-          }
+              if (File(filePath).existsSync()) {
+                setDialogState(() {
+                  alreadyExists = true;
+                  createError = null;
+                });
+                return;
+              }
 
-          try {
-            if (!_databaseDirectory.existsSync()) {
-              _databaseDirectory.createSync(recursive: true);
+              try {
+                if (!_databaseDirectory.existsSync()) {
+                  _databaseDirectory.createSync(recursive: true);
+                }
+                await File(filePath).writeAsString('{"tables":[]}');
+              } on FileSystemException {
+                setDialogState(() {
+                  createError = 'Could not create database file.';
+                });
+                return;
+              }
+
+              if (!mounted) return;
+              // ignore: use_build_context_synchronously
+              Navigator.of(dialogContext).pop(true);
             }
-            await File(filePath).writeAsString('{"tables":[]}');
-          } on FileSystemException {
-            createError = 'Could not create database file.';
-            (dialogContext as Element).markNeedsBuild();
-            return;
-          }
 
-          if (!mounted) return;
-          // ignore: use_build_context_synchronously
-          Navigator.of(dialogContext).pop(true);
-        }
-
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-          title: const Text('Create Database'),
-          content: TextField(
-            controller: nameCtrl,
-            autofocus: true,
-            textInputAction: TextInputAction.done,
-            decoration: InputDecoration(
-              labelText: 'Database name',
-              hintText: 'my-database',
-              errorText: alreadyExists
-                  ? 'A database with this name already exists.'
-                  : createError,
-            ),
-            onChanged: (_) {
-              if (alreadyExists) {
-                alreadyExists = false;
-                (dialogContext as Element).markNeedsBuild();
-              }
-              if (createError != null) {
-                createError = null;
-                (dialogContext as Element).markNeedsBuild();
-              }
-            },
-            onSubmitted: (_) async => tryCreate(),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async => tryCreate(),
-              child: const Text('Create'),
-            ),
-          ],
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(5),
+              ),
+              title: const Text('Create Database'),
+              content: TextField(
+                controller: _databaseNameController,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  labelText: 'Database name',
+                  hintText: 'my-database',
+                  errorText: alreadyExists
+                      ? 'A database with this name already exists.'
+                      : createError,
+                ),
+                onChanged: (_) {
+                  if (alreadyExists || createError != null) {
+                    setDialogState(() {
+                      alreadyExists = false;
+                      createError = null;
+                    });
+                  }
+                },
+                onSubmitted: (_) async => tryCreate(),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async => tryCreate(),
+                  child: const Text('Create'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
-
-    nameCtrl.dispose();
 
     if (shouldCreate == true && mounted) {
       _loadDatabaseFiles();
@@ -2953,6 +2965,159 @@ class _databaseState extends State<database> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Connect to database not implemented yet.')),
     );
+  }
+
+  Future<void> _renameDatabaseFile(File file) async {
+    var alreadyExists = false;
+    final currentName = file.path.split(Platform.pathSeparator).last;
+    final baseName = currentName.endsWith('.json')
+        ? currentName.substring(0, currentName.length - 5)
+        : currentName;
+    var nextName = baseName;
+
+    final shouldRename = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final dialogElement = dialogContext as Element;
+
+        Future<void> tryRename() async {
+          final raw = nextName.trim();
+          if (raw.isEmpty || raw == baseName) return;
+
+          if (raw.contains(RegExp(r'[<>:"/\\|?*]'))) {
+            alreadyExists = false;
+            dialogElement.markNeedsBuild();
+            return;
+          }
+
+          final newFileName = raw.endsWith('.json') ? raw : '$raw.json';
+
+          final existingNames = _databaseFiles
+              .map(
+                (f) => f.path
+                    .split(RegExp(r'[/\\]'))
+                    .where((s) => s.isNotEmpty)
+                    .last
+                    .toLowerCase(),
+              )
+              .toList();
+
+          if (existingNames.contains(newFileName.toLowerCase()) &&
+              newFileName.toLowerCase() != currentName.toLowerCase()) {
+            alreadyExists = true;
+            if (dialogElement.mounted) dialogElement.markNeedsBuild();
+            return;
+          }
+
+          final newFile = File(
+            '${file.parent.path}${Platform.pathSeparator}$newFileName',
+          );
+
+          try {
+            await file.rename(newFile.path);
+          } on FileSystemException {
+            if (!context.mounted) return;
+            // ignore: use_build_context_synchronously
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Could not rename database file.')),
+            );
+            return;
+          }
+
+          if (!context.mounted) return;
+          Navigator.of(dialogContext).pop(true);
+        }
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: const Text('Rename database file'),
+          content: TextFormField(
+            initialValue: baseName,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: 'Database name',
+              errorText: alreadyExists
+                  ? 'A database with this name already exists.'
+                  : null,
+            ),
+            onChanged: (value) {
+              nextName = value;
+              if (alreadyExists) {
+                alreadyExists = false;
+                if (dialogElement.mounted) dialogElement.markNeedsBuild();
+              }
+            },
+            onFieldSubmitted: (_) {
+              FocusScope.of(dialogContext).unfocus();
+              Future<void>.microtask(tryRename);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async => tryRename(),
+              child: const Text('Rename'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldRename == true && mounted) {
+      _loadDatabaseFiles();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Database file renamed.')));
+    }
+  }
+
+  Future<void> _deleteDatabaseFile(File file) async {
+    final name = file.path.split(Platform.pathSeparator).last;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+        title: const Text('Delete database file'),
+        content: Text('Delete "$name" permanently? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red[700]),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      if (file.existsSync()) {
+        await file.delete();
+      }
+    } on FileSystemException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not delete database file.')),
+      );
+      return;
+    }
+
+    if (mounted) {
+      _loadDatabaseFiles();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Database file deleted.')));
+    }
   }
 
   @override
@@ -3092,6 +3257,21 @@ class _databaseState extends State<database> {
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                 ),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.white),
+                                    tooltip: 'Rename database file',
+                                    onPressed: () => _renameDatabaseFile(file),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.white),
+                                    tooltip: 'Delete database file',
+                                    onPressed: () => _deleteDatabaseFile(file),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
