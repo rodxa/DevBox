@@ -2961,11 +2961,6 @@ class _databaseState extends State<database> {
     }
   }
 
-  Future<void> _connectToDatabase() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Connect to database not implemented yet.')),
-    );
-  }
 
   Future<void> _renameDatabaseFile(File file) async {
     var alreadyExists = false;
