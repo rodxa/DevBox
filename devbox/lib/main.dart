@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 void main() {
+  print('[DevBox] App starting...');
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }

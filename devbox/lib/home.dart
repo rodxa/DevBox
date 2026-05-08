@@ -122,6 +122,9 @@ class _HomeState extends State<Home> {
                                   Directory(
                                     '${newProjectDir.path}/Collaborators',
                                   ).createSync();
+                                  Directory(
+                                    '${newProjectDir.path}/Snippets',
+                                  ).createSync();
 
                                   //add default files to project
                                   File(
