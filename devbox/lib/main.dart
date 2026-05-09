@@ -1,10 +1,12 @@
 import 'package:devbox/home.dart';
+import 'package:devbox/snippets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-void main() {
+void main() async {
   print('[DevBox] App starting...');
   WidgetsFlutterBinding.ensureInitialized();
+  await initCapture(addCapturedSnippet);
   runApp(const MyApp());
 }
 
@@ -90,22 +92,11 @@ class _FadeSlidePageTransitionBuilder extends PageTransitionsBuilder {
     final slide = Tween<Offset>(
       begin: const Offset(0.1, 0.0),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeOutCubic,
-    ));
-    final fade = CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeIn,
-    );
+    ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+    final fade = CurvedAnimation(parent: animation, curve: Curves.easeIn);
     return SlideTransition(
       position: slide,
-      child: FadeTransition(
-        opacity: fade,
-        child: child,
-      ),
+      child: FadeTransition(opacity: fade, child: child),
     );
   }
 }
-
-
