@@ -1,6 +1,6 @@
+import 'package:devbox/all_snippets.dart';
 import 'package:devbox/globals.dart';
 import 'package:devbox/project.dart';
-import 'package:devbox/tools/all_snippets.dart';
 import 'package:devbox/tools_pages.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
