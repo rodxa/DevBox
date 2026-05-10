@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:devbox/globals.dart';
+import 'package:devbox/snippet_storage.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 
 bool _running = false;
@@ -37,10 +37,7 @@ Future<void> initCapture(Function(String text) onCapture) async {
 
 Future<String?> _capture() async {
   print('Capturing selection...');
-  final result = await Process.run(
-    r'..\devbox\lib\selection_reader.exe',
-    [],
-  );
+  final result = await Process.run(r'..\devbox\lib\selection_reader.exe', []);
 
   print("STDOUT: ${result.stdout}");
   print("EXIT: ${result.exitCode}");
@@ -52,49 +49,21 @@ Future<String?> _capture() async {
 
 void addCapturedSnippet(String text) {
   final projectFolder = Globals().currentProjectFolder;
-  if (projectFolder == null) return;
-
-  final snippetsFile = File(
-    '${projectFolder.path}${Platform.pathSeparator}snippets${Platform.pathSeparator}snippets.json',
-  );
-
-  List<dynamic> snippets = [];
-  if (snippetsFile.existsSync()) {
-    try {
-      final content = snippetsFile.readAsStringSync();
-      if (content.trim().isNotEmpty) {
-        final decoded = jsonDecode(content) as Map<String, dynamic>;
-        snippets = (decoded['snippets'] as List<dynamic>?) ?? [];
-      }
-    } on FormatException {
-      // ignore malformed JSON, start fresh
-    }
-  }
-
-  // Auto-generate a title from the first non-empty line
-  final firstLine = text
-      .split('\n')
-      .firstWhere((l) => l.trim().isNotEmpty, orElse: () => 'Snippet');
-  String baseTitle = firstLine.trim();
-  if (baseTitle.length > 50) baseTitle = '${baseTitle.substring(0, 47)}...';
-
-  // Ensure unique title
-  String title = baseTitle;
-  int counter = 1;
-  while (snippets.any((s) => s is Map && s['title'] == title)) {
-    title = '$baseTitle ($counter)';
-    counter++;
-  }
-
-  snippets.add({'title': title, 'language': '', 'code': text});
+  final snippetsFile = projectFolder == null
+      ? getGlobalSnippetsFile()
+      : getProjectSnippetsFile(projectFolder);
+  final title = addSnippetToFile(snippetsFile, {
+    'title': buildSnippetTitleFromCode(text),
+    'language': '',
+    'code': text,
+    snippetCreatedAtField: nowIsoTimestamp(),
+  });
+  final targetName = projectFolder == null
+      ? globalSnippetBucketName
+      : projectFolder.path.split(Platform.pathSeparator).last;
 
   try {
-    final snippetsDir = snippetsFile.parent;
-    if (!snippetsDir.existsSync()) {
-      snippetsDir.createSync(recursive: true);
-    }
-    snippetsFile.writeAsStringSync(jsonEncode({'snippets': snippets}));
-    print('[DevBox] Snippet "$title" saved.');
+    print('[DevBox] Snippet "$title" saved to $targetName.');
   } on FileSystemException catch (e) {
     print('[DevBox] Failed to save snippet: $e');
   }
@@ -117,9 +86,7 @@ class Snippets extends StatefulWidget {
 class _SnippetsState extends State<Snippets> {
   final List<Map<String, String>> _snippets = [];
 
-  File get _snippetsFile => File(
-    '${widget.projectFolder.path}${Platform.pathSeparator}snippets${Platform.pathSeparator}snippets.json',
-  );
+  File get _snippetsFile => getProjectSnippetsFile(widget.projectFolder);
 
   @override
   void initState() {
@@ -128,57 +95,16 @@ class _SnippetsState extends State<Snippets> {
   }
 
   void _loadSnippets() {
-    try {
-      if (!_snippetsFile.existsSync()) {
-        setState(() {
-          _snippets.clear();
-        });
-        return;
-      }
-
-      final content = _snippetsFile.readAsStringSync();
-      if (content.trim().isEmpty) {
-        setState(() {
-          _snippets.clear();
-        });
-        return;
-      }
-
-      final decoded = jsonDecode(content) as Map<String, dynamic>;
-      final list = decoded['snippets'] as List<dynamic>?;
-
-      setState(() {
-        _snippets.clear();
-        if (list == null) {
-          return;
-        }
-
-        for (final item in list) {
-          if (item is Map<String, dynamic>) {
-            _snippets.add({
-              'title': item['title']?.toString() ?? '',
-              'language': item['language']?.toString() ?? '',
-              'code': item['code']?.toString() ?? '',
-            });
-          }
-        }
-      });
-    } on FileSystemException {
-      // ignore read errors
-    } on FormatException {
-      // ignore malformed JSON
-    }
+    setState(() {
+      _snippets
+        ..clear()
+        ..addAll(readSnippetsFromFile(_snippetsFile));
+    });
   }
 
   void _saveSnippets() {
     try {
-      final snippetsDir = _snippetsFile.parent;
-      if (!snippetsDir.existsSync()) {
-        snippetsDir.createSync(recursive: true);
-      }
-
-      final encoded = jsonEncode({'snippets': _snippets});
-      _snippetsFile.writeAsStringSync(encoded);
+      writeSnippetsToFile(_snippetsFile, _snippets);
     } on FileSystemException {
       // ignore write errors
     }
@@ -208,9 +134,13 @@ class _SnippetsState extends State<Snippets> {
 
     setState(() {
       if (isEditing) {
-        _snippets[editIndex] = result;
+        _snippets[editIndex] = {
+          ...result,
+          snippetCreatedAtField:
+              _snippets[editIndex][snippetCreatedAtField] ?? nowIsoTimestamp(),
+        };
       } else {
-        _snippets.add(result);
+        _snippets.add({...result, snippetCreatedAtField: nowIsoTimestamp()});
       }
     });
 
@@ -264,6 +194,94 @@ class _SnippetsState extends State<Snippets> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('Copied "$title" code.')));
+  }
+
+  Future<void> _moveSnippetToAnotherTarget(int index) async {
+    final snippet = Map<String, String>.from(_snippets[index]);
+    final currentProjectName = widget.projectFolder.path
+        .split(Platform.pathSeparator)
+        .last;
+    final projectFolders = listProjectFolders(
+      contentFolder: widget.projectFolder.parent,
+    );
+
+    final targets = <_MoveTarget>[const _MoveTarget.global()];
+    for (final folder in projectFolders) {
+      final projectName = folder.path.split(Platform.pathSeparator).last;
+      if (projectName.toLowerCase() == currentProjectName.toLowerCase()) {
+        continue;
+      }
+      targets.add(_MoveTarget.project(name: projectName, folder: folder));
+    }
+
+    if (targets.isEmpty) {
+      return;
+    }
+
+    final selectedTarget = await showDialog<_MoveTarget>(
+      context: context,
+      builder: (dialogContext) {
+        _MoveTarget target = targets.first;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(5),
+            ),
+            title: const Text('Move snippet'),
+            content: DropdownButtonFormField<_MoveTarget>(
+              value: target,
+              decoration: const InputDecoration(labelText: 'Destination'),
+              items: targets
+                  .map(
+                    (item) => DropdownMenuItem<_MoveTarget>(
+                      value: item,
+                      child: Text(item.name),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                setDialogState(() {
+                  target = value;
+                });
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(target),
+                child: const Text('Move'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selectedTarget == null) {
+      return;
+    }
+
+    final destinationFile = selectedTarget.isGlobal
+        ? getGlobalSnippetsFile()
+        : getProjectSnippetsFile(selectedTarget.folder!);
+    final savedTitle = addSnippetToFile(destinationFile, snippet);
+
+    setState(() {
+      _snippets.removeAt(index);
+    });
+    _saveSnippets();
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Moved "$savedTitle" to ${selectedTarget.name}.')),
+    );
   }
 
   @override
@@ -448,6 +466,15 @@ class _SnippetsState extends State<Snippets> {
                                   ),
                                   IconButton(
                                     icon: Icon(
+                                      Icons.drive_file_move_outline,
+                                      color: Colors.blueGrey[600],
+                                    ),
+                                    tooltip: 'Move snippet',
+                                    onPressed: () =>
+                                        _moveSnippetToAnotherTarget(index),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(
                                       Icons.delete,
                                       color: Colors.blueGrey[700],
                                     ),
@@ -468,6 +495,7 @@ class _SnippetsState extends State<Snippets> {
     );
   }
 }
+
 class _SnippetDialog extends StatefulWidget {
   const _SnippetDialog({
     required this.isEditing,
@@ -489,29 +517,50 @@ class _SnippetDialog extends StatefulWidget {
 
 class _SnippetDialogState extends State<_SnippetDialog> {
   late final TextEditingController _titleController;
-  late final TextEditingController _languageController;
   late final TextEditingController _codeController;
+  late String _selectedLanguage;
   String? _titleError;
+
+  List<String> get _languageOptions {
+    final options = <String>[...snippetLanguageOptions];
+    final current = _selectedLanguage.trim();
+    final hasCurrent = options.any(
+      (option) => option.toLowerCase() == current.toLowerCase(),
+    );
+    if (current.isNotEmpty && !hasCurrent) {
+      options.add(current);
+    }
+    return options;
+  }
+
+  String _normalizeLanguage(String value) {
+    final trimmed = value.trim();
+    for (final option in snippetLanguageOptions) {
+      if (option.toLowerCase() == trimmed.toLowerCase()) {
+        return option;
+      }
+    }
+    return trimmed;
+  }
 
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.initialTitle);
-    _languageController = TextEditingController(text: widget.initialLanguage);
     _codeController = TextEditingController(text: widget.initialCode);
+    _selectedLanguage = _normalizeLanguage(widget.initialLanguage);
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _languageController.dispose();
     _codeController.dispose();
     super.dispose();
   }
 
   void _trySubmit() {
     final title = _titleController.text.trim();
-    final language = _languageController.text.trim();
+    final language = _normalizeLanguage(_selectedLanguage);
     final code = _codeController.text;
 
     if (title.isEmpty) {
@@ -531,11 +580,9 @@ class _SnippetDialogState extends State<_SnippetDialog> {
       return;
     }
 
-    Navigator.of(context).pop({
-      'title': title,
-      'language': language,
-      'code': code,
-    });
+    Navigator.of(
+      context,
+    ).pop({'title': title, 'language': language, 'code': code});
   }
 
   @override
@@ -545,44 +592,58 @@ class _SnippetDialogState extends State<_SnippetDialog> {
       title: Text(widget.isEditing ? 'Edit Snippet' : 'Add Snippet'),
       content: SizedBox(
         width: 560,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: _titleController,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: 'Title',
-                  hintText: 'e.g. HTTP GET helper',
-                  errorText: _titleError,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                ),
-                onChanged: (_) {
-                  if (_titleError != null) {
-                    setState(() {
-                      _titleError = null;
-                    });
-                  }
-                },
-              ),
-              SizedBox(height: 12),
-              TextField(
-                controller: _languageController,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: 'Language (optional)',
-                  hintText: 'e.g. dart, javascript, sql',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(5),
-                  ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _titleController,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: 'Title',
+                hintText: 'e.g. HTTP GET helper',
+                errorText: _titleError,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(5),
                 ),
               ),
-              SizedBox(height: 12),
-              TextField(
+              onChanged: (_) {
+                if (_titleError != null) {
+                  setState(() {
+                    _titleError = null;
+                  });
+                }
+              },
+            ),
+            SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _selectedLanguage,
+              decoration: InputDecoration(
+                labelText: 'Language (optional)',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+              items: _languageOptions
+                  .map(
+                    (language) => DropdownMenuItem<String>(
+                      value: language,
+                      child: Text(language.isEmpty ? 'None' : language),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() {
+                  _selectedLanguage = value;
+                });
+              },
+            ),
+            SizedBox(height: 12),
+            Flexible(
+              child: TextField(
                 controller: _codeController,
                 minLines: 10,
                 maxLines: 16,
@@ -596,8 +657,8 @@ class _SnippetDialogState extends State<_SnippetDialog> {
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
       actions: [
@@ -612,4 +673,18 @@ class _SnippetDialogState extends State<_SnippetDialog> {
       ],
     );
   }
+}
+
+class _MoveTarget {
+  const _MoveTarget.global()
+    : name = globalSnippetBucketName,
+      folder = null,
+      isGlobal = true;
+
+  const _MoveTarget.project({required this.name, required this.folder})
+    : isGlobal = false;
+
+  final String name;
+  final Directory? folder;
+  final bool isGlobal;
 }

@@ -40,6 +40,16 @@ class _ProjectState extends State<Project> {
   }
 
   @override
+  void dispose() {
+    final current = Globals().currentProjectFolder;
+    if (current?.path.toLowerCase() ==
+        widget.projectFolder.path.toLowerCase()) {
+      Globals().currentProjectFolder = null;
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Row(
