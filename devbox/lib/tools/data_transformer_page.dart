@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -39,6 +40,7 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
     'remove lines containing',
     'sort lines',
     'replace',
+    'insert text',
     'prefix',
     'suffix',
     'json pretty',
@@ -46,12 +48,16 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
   ];
 
   final JsonEncoder _encoder = const JsonEncoder.withIndent('  ');
+  final TextEditingController _inputController = TextEditingController();
 
   List<_TransformerProject> _projects = <_TransformerProject>[];
   String? _selectedProjectId;
   bool _isLoading = true;
   bool _isDropActive = false;
   String? _error;
+  TextSelection _inputSelection = const TextSelection.collapsed(offset: 0);
+  Timer? _pendingInputSave;
+  bool _isSyncingInputController = false;
 
   _TransformerProject? get _selectedProject {
     final selectedId = _selectedProjectId;
@@ -74,10 +80,98 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
     return _applyChanges(project.inputContent, project.changeRequests);
   }
 
+  String get _inputCaretLabel {
+    final location = _linePositionFromOffset(
+      _inputController.text,
+      _inputSelection.extentOffset,
+    );
+    return 'Ln ${location.line}, Pos ${location.position}';
+  }
+
   @override
   void initState() {
     super.initState();
+    _inputController.addListener(_handleInputControllerChanged);
     _loadProjects();
+  }
+
+  @override
+  void dispose() {
+    _pendingInputSave?.cancel();
+    _inputController.removeListener(_handleInputControllerChanged);
+    _inputController.dispose();
+    super.dispose();
+  }
+
+  void _handleInputControllerChanged() {
+    final selection = _inputController.selection;
+
+    if (_isSyncingInputController) {
+      if (selection != _inputSelection && mounted) {
+        setState(() {
+          _inputSelection = selection;
+        });
+      }
+      return;
+    }
+
+    final selectedProject = _selectedProject;
+    final text = _inputController.text;
+    final selectionChanged = selection != _inputSelection;
+    final textChanged =
+        selectedProject != null && text != selectedProject.inputContent;
+
+    if (!selectionChanged && !textChanged) {
+      return;
+    }
+
+    setState(() {
+      if (selectionChanged) {
+        _inputSelection = selection;
+      }
+      if (textChanged) {
+        _projects = _projects.map((project) {
+          if (project.id != selectedProject.id) {
+            return project;
+          }
+          return project.copyWith(inputContent: text);
+        }).toList();
+      }
+    });
+
+    if (textChanged) {
+      _scheduleInputSave();
+    }
+  }
+
+  void _scheduleInputSave() {
+    _pendingInputSave?.cancel();
+    _pendingInputSave = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        await _saveProjects();
+      } catch (_) {
+        // Ignore transient save issues while typing.
+      }
+    });
+  }
+
+  void _syncInputControllerToSelectedProject() {
+    final content = _selectedProject?.inputContent ?? '';
+
+    _isSyncingInputController = true;
+    _inputController.value = TextEditingValue(
+      text: content,
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+    _isSyncingInputController = false;
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _inputSelection = _inputController.selection;
+    });
   }
 
   Future<void> _loadProjects() async {
@@ -129,11 +223,13 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
         _selectedProjectId = loaded.isEmpty ? null : loaded.first.id;
         _isLoading = false;
       });
+      _syncInputControllerToSelectedProject();
     } catch (_) {
       setState(() {
         _isLoading = false;
         _error = 'Could not load data transformer projects.';
       });
+      _syncInputControllerToSelectedProject();
     }
   }
 
@@ -174,6 +270,7 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
       _projects = [..._projects, project];
       _selectedProjectId = project.id;
     });
+    _syncInputControllerToSelectedProject();
 
     await _saveProjects();
     _showMessage('Project "$name" created.');
@@ -304,6 +401,7 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
         _selectedProjectId = _projects.isEmpty ? null : _projects.first.id;
       }
     });
+    _syncInputControllerToSelectedProject();
 
     await _saveProjects();
     _showMessage('Project deleted.');
@@ -366,6 +464,7 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
           );
         }).toList();
       });
+      _syncInputControllerToSelectedProject();
 
       await _saveProjects();
       _showMessage('File uploaded to ${selectedProject.name}.');
@@ -536,6 +635,7 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
             builder: (context, setDialogState) {
               return DropdownButtonFormField<String>(
                 initialValue: selectedType,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Block type',
                   border: OutlineInputBorder(),
@@ -544,7 +644,10 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
                     .map(
                       (type) => DropdownMenuItem<String>(
                         value: type,
-                        child: Text(_displayType(type)),
+                        child: Text(
+                          _displayType(type),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     )
                     .toList(),
@@ -778,6 +881,7 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
                                     setState(() {
                                       _selectedProjectId = project.id;
                                     });
+                                    _syncInputControllerToSelectedProject();
                                   },
                                   child: Padding(
                                     padding: const EdgeInsets.only(
@@ -1182,10 +1286,11 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
                                             child: Column(
                                               children: [
                                                 Expanded(
-                                                  child: _DataPreviewCard(
+                                                  child: _EditableDataCard(
                                                     title: 'Input',
-                                                    content: selectedProject
-                                                        .inputContent,
+                                                    controller: _inputController,
+                                                    positionLabel:
+                                                        _inputCaretLabel,
                                                   ),
                                                 ),
                                                 const SizedBox(height: 10),
@@ -1217,11 +1322,79 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
   }
 }
 
-class _DataPreviewCard extends StatelessWidget {
+class _DataPreviewCard extends StatefulWidget {
   const _DataPreviewCard({required this.title, required this.content});
 
   final String title;
   final String content;
+
+  @override
+  State<_DataPreviewCard> createState() => _DataPreviewCardState();
+}
+
+class _DataPreviewCardState extends State<_DataPreviewCard> {
+  late final TextEditingController _controller;
+  TextSelection _selection = const TextSelection.collapsed(offset: 0);
+  bool _isSyncingController = false;
+
+  String get _positionLabel {
+    final location = _linePositionFromOffset(
+      _controller.text,
+      _selection.extentOffset,
+    );
+    return 'Ln ${location.line}, Pos ${location.position}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.content);
+    _controller.addListener(_handleControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DataPreviewCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.content == widget.content) {
+      return;
+    }
+
+    final clampedOffset = _selection.extentOffset.clamp(0, widget.content.length);
+    _isSyncingController = true;
+    _controller.value = TextEditingValue(
+      text: widget.content,
+      selection: TextSelection.collapsed(offset: clampedOffset),
+    );
+    _isSyncingController = false;
+
+    if (_selection.extentOffset != clampedOffset) {
+      setState(() {
+        _selection = TextSelection.collapsed(offset: clampedOffset);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleControllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    if (_isSyncingController) {
+      return;
+    }
+
+    final selection = _controller.selection;
+    if (selection == _selection || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _selection = selection;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1243,23 +1416,128 @@ class _DataPreviewCard extends StatelessWidget {
                 topRight: Radius.circular(5),
               ),
             ),
-            child: Text(
-              title,
-              style: TextStyle(
-                color: Colors.blueGrey[900],
-                fontWeight: FontWeight.bold,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: TextStyle(
+                      color: Colors.blueGrey[900],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Text(
+                  _positionLabel,
+                  style: TextStyle(
+                    color: Colors.blueGrey[700],
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
-            child: Container(
-              width: double.infinity,
+            child: Padding(
               padding: const EdgeInsets.all(10),
-              child: SingleChildScrollView(
-                child: SelectableText(
-                  content.isEmpty ? '(empty)' : content,
-                  style: const TextStyle(fontFamily: 'monospace', height: 1.3),
+              child: TextField(
+                controller: _controller,
+                readOnly: true,
+                showCursor: true,
+                expands: true,
+                maxLines: null,
+                minLines: null,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                textAlignVertical: TextAlignVertical.top,
+                decoration: const InputDecoration(
+                  isCollapsed: true,
+                  hintText: '(empty)',
+                  border: InputBorder.none,
                 ),
+                style: const TextStyle(fontFamily: 'monospace', height: 1.3),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditableDataCard extends StatelessWidget {
+  const _EditableDataCard({
+    required this.title,
+    required this.controller,
+    required this.positionLabel,
+  });
+
+  final String title;
+  final TextEditingController controller;
+  final String positionLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.blueGrey.shade200),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey[50],
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(5),
+                topRight: Radius.circular(5),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: Colors.blueGrey[900],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Text(
+                  positionLabel,
+                  style: TextStyle(
+                    color: Colors.blueGrey[700],
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: TextField(
+                controller: controller,
+                readOnly: true,
+                showCursor: true,
+                expands: true,
+                maxLines: null,
+                minLines: null,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                textAlignVertical: TextAlignVertical.top,
+                decoration: const InputDecoration(
+                  isCollapsed: true,
+                  hintText: '(empty)',
+                  border: InputBorder.none,
+                ),
+                style: const TextStyle(fontFamily: 'monospace', height: 1.3),
               ),
             ),
           ),
@@ -1316,6 +1594,7 @@ class _ChangeBlockEditor extends StatelessWidget {
           children: [
             DropdownButtonFormField<String>(
               initialValue: block.type,
+              isExpanded: true,
               decoration: const InputDecoration(
                 isDense: true,
                 labelText: 'Type',
@@ -1325,7 +1604,10 @@ class _ChangeBlockEditor extends StatelessWidget {
                   .map(
                     (type) => DropdownMenuItem<String>(
                       value: type,
-                      child: Text(_displayType(type)),
+                      child: Text(
+                        _displayType(type),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   )
                   .toList(),
@@ -1407,9 +1689,14 @@ class _ChangeBlockEditor extends StatelessWidget {
           const SizedBox(height: 8),
           TextFormField(
             initialValue: block.from,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            minLines: 2,
+            maxLines: 4,
             decoration: const InputDecoration(
               isDense: true,
               labelText: 'From',
+              helperText: 'Supports Enter and \\n',
               border: OutlineInputBorder(),
             ),
             onChanged: onFromChanged,
@@ -1417,12 +1704,58 @@ class _ChangeBlockEditor extends StatelessWidget {
           const SizedBox(height: 8),
           TextFormField(
             initialValue: block.to,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            minLines: 2,
+            maxLines: 4,
             decoration: const InputDecoration(
               isDense: true,
               labelText: 'To',
+              helperText: 'Supports Enter and \\n',
               border: OutlineInputBorder(),
             ),
             onChanged: onToChanged,
+          ),
+        ],
+        if (block.type == 'insert text') ...[
+          const SizedBox(height: 8),
+          TextFormField(
+            initialValue: block.from,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: 'Line (1-based)',
+              helperText: 'Lines beyond the text clamp to the end',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: onFromChanged,
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            initialValue: block.to,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: 'Position in line (1-based)',
+              helperText: '1 inserts at the start of the target line',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: onToChanged,
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            initialValue: block.value,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: 'Text to insert',
+              helperText: 'Supports Enter',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: onValueChanged,
           ),
         ],
         if (block.type == 'keep line(s)' || block.type == 'remove line(s)') ...[
@@ -1453,9 +1786,14 @@ class _ChangeBlockEditor extends StatelessWidget {
           const SizedBox(height: 8),
           TextFormField(
             initialValue: block.value,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            minLines: 2,
+            maxLines: 4,
             decoration: InputDecoration(
               isDense: true,
               labelText: block.type == 'prefix' ? 'Prefix text' : 'Suffix text',
+              helperText: 'Supports Enter and \\n',
               border: const OutlineInputBorder(),
             ),
             onChanged: onValueChanged,
@@ -1642,7 +1980,8 @@ class _ChangeBlock {
         normalized == 'remove line(s)' ||
         normalized == 'keep lines containing' ||
         normalized == 'remove lines containing' ||
-        normalized == 'sort lines') {
+        normalized == 'sort lines' ||
+        normalized == 'insert text') {
       return _ChangeBlock(type: normalized);
     }
 
@@ -1691,6 +2030,7 @@ String _normalizeBlockType(String type) {
     case 'remove lines containing':
     case 'sort lines':
     case 'replace':
+    case 'insert text':
     case 'prefix':
     case 'suffix':
     case 'json pretty':
@@ -1725,6 +2065,8 @@ String _displayType(String type) {
       return 'Lowercase';
     case 'replace':
       return 'Replace';
+    case 'insert text':
+      return 'Insert text';
     case 'prefix':
       return 'Prefix';
     case 'suffix':
@@ -1899,35 +2241,63 @@ String _applyChanges(String input, List<_ChangeBlock> changes) {
       continue;
     }
 
-    if (normalized == 'replace') {
-      if (block.from.isEmpty) {
+    if (normalized == 'insert text') {
+      final insertText = block.value;
+      final lineNumber = int.tryParse(block.from.trim());
+      final positionInLine = int.tryParse(block.to.trim());
+      if (insertText.isEmpty || lineNumber == null || positionInLine == null) {
         continue;
       }
 
+      final clampedPosition = _offsetFromLineAndPosition(
+        output,
+        lineNumber,
+        positionInLine,
+      );
+      output =
+          '${output.substring(0, clampedPosition)}$insertText${output.substring(clampedPosition)}';
+      continue;
+    }
+
+    if (normalized == 'replace') {
+      final replacement = _decodeEscapedText(block.to);
+
       if (block.useRegex) {
+        if (block.from.isEmpty) {
+          continue;
+        }
+
         try {
           final pattern = RegExp(
             block.from,
             caseSensitive: block.caseSensitive,
             multiLine: true,
           );
-          output = output.replaceAll(pattern, block.to);
+          output = output.replaceAll(pattern, replacement);
         } catch (_) {
           // Ignore invalid regex and keep output unchanged.
         }
-      } else if (block.caseSensitive) {
-        output = output.replaceAll(block.from, block.to);
+        continue;
+      }
+
+      final fromText = _decodeEscapedText(block.from);
+      if (fromText.isEmpty) {
+        continue;
+      }
+
+      if (block.caseSensitive) {
+        output = output.replaceAll(fromText, replacement);
       } else {
         output = output.replaceAllMapped(
-          RegExp(RegExp.escape(block.from), caseSensitive: false),
-          (_) => block.to,
+          RegExp(RegExp.escape(fromText), caseSensitive: false),
+          (_) => replacement,
         );
       }
       continue;
     }
 
     if (normalized == 'prefix') {
-      final prefix = block.value;
+      final prefix = _decodeEscapedText(block.value);
       output = output
           .split('\n')
           .map((line) {
@@ -1941,7 +2311,7 @@ String _applyChanges(String input, List<_ChangeBlock> changes) {
     }
 
     if (normalized == 'suffix') {
-      final suffix = block.value;
+      final suffix = _decodeEscapedText(block.value);
       output = output
           .split('\n')
           .map((line) {
@@ -1956,6 +2326,80 @@ String _applyChanges(String input, List<_ChangeBlock> changes) {
   }
 
   return output;
+}
+
+String _decodeEscapedText(String value) {
+  return value
+      .replaceAll('\\r\\n', '\r\n')
+      .replaceAll('\\n', '\n')
+      .replaceAll('\\r', '\r')
+      .replaceAll('\\t', '\t');
+}
+
+_LinePosition _linePositionFromOffset(String text, int offset) {
+  final safeOffset = offset.clamp(0, text.length);
+  var line = 1;
+  var position = 1;
+
+  for (var index = 0; index < safeOffset; index++) {
+    final codeUnit = text.codeUnitAt(index);
+    if (codeUnit == 13) {
+      continue;
+    }
+    if (codeUnit == 10) {
+      line++;
+      position = 1;
+      continue;
+    }
+    position++;
+  }
+
+  return _LinePosition(line, position);
+}
+
+int _offsetFromLineAndPosition(
+  String text,
+  int lineNumber,
+  int positionInLine,
+) {
+  final targetLine = lineNumber < 1 ? 1 : lineNumber;
+  final targetPosition = positionInLine < 1 ? 1 : positionInLine;
+
+  var currentLine = 1;
+  var lineStart = 0;
+
+  for (var index = 0; index < text.length && currentLine < targetLine; index++) {
+    if (text.codeUnitAt(index) == 10) {
+      currentLine++;
+      lineStart = index + 1;
+    }
+  }
+
+  if (currentLine < targetLine) {
+    return text.length;
+  }
+
+  var lineEnd = text.length;
+  for (var index = lineStart; index < text.length; index++) {
+    if (text.codeUnitAt(index) == 10) {
+      lineEnd = index;
+      break;
+    }
+  }
+
+  if (lineEnd > lineStart && text.codeUnitAt(lineEnd - 1) == 13) {
+    lineEnd--;
+  }
+
+  final clampedPosition = targetPosition.clamp(1, lineEnd - lineStart + 1);
+  return lineStart + clampedPosition - 1;
+}
+
+class _LinePosition {
+  const _LinePosition(this.line, this.position);
+
+  final int line;
+  final int position;
 }
 
 bool _matchesContains(String input, String query, bool caseSensitive) {

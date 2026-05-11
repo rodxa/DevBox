@@ -436,7 +436,9 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
     }
 
     final targets = <_MoveTarget>[const _MoveTarget.global()];
-    for (final folder in listProjectFolders(contentFolder: widget.contentFolder)) {
+    for (final folder in listProjectFolders(
+      contentFolder: widget.contentFolder,
+    )) {
       final name = folder.path.split(Platform.pathSeparator).last;
       targets.add(_MoveTarget.project(name: name, folder: folder));
     }
@@ -608,6 +610,40 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
     return '$y-$m-$d';
   }
 
+  Widget _buildToolbarAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.blueGrey[100],
+      borderRadius: BorderRadius.circular(5),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(5),
+        onTap: onTap,
+        splashColor: Colors.blueGrey[200],
+        highlightColor: Colors.blueGrey[300],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.blueGrey[900]),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blueGrey[900],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredSnippets;
@@ -650,8 +686,6 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
                       ],
                     ),
                   ),
-                 
-
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Text(
@@ -672,13 +706,15 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
                         labelStyle: TextStyle(color: Colors.blueGrey[100]),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(5),
-                          borderSide:
-                              BorderSide(color: Colors.blueGrey.shade600),
+                          borderSide: BorderSide(
+                            color: Colors.blueGrey.shade600,
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(5),
-                          borderSide:
-                              BorderSide(color: Colors.blueGrey.shade300),
+                          borderSide: BorderSide(
+                            color: Colors.blueGrey.shade300,
+                          ),
                         ),
                       ),
                       dropdownColor: Colors.blueGrey[800],
@@ -692,7 +728,9 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
                           )
                           .toList(),
                       onChanged: (value) {
-                        if (value == null) return;
+                        if (value == null) {
+                          return;
+                        }
                         setState(() {
                           _selectedProject = value;
                         });
@@ -709,13 +747,15 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
                         labelStyle: TextStyle(color: Colors.blueGrey[100]),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(5),
-                          borderSide:
-                              BorderSide(color: Colors.blueGrey.shade600),
+                          borderSide: BorderSide(
+                            color: Colors.blueGrey.shade600,
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(5),
-                          borderSide:
-                              BorderSide(color: Colors.blueGrey.shade300),
+                          borderSide: BorderSide(
+                            color: Colors.blueGrey.shade300,
+                          ),
                         ),
                       ),
                       dropdownColor: Colors.blueGrey[800],
@@ -729,7 +769,9 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
                           )
                           .toList(),
                       onChanged: (value) {
-                        if (value == null) return;
+                        if (value == null) {
+                          return;
+                        }
                         setState(() {
                           _selectedDateFilter = value;
                         });
@@ -783,230 +825,182 @@ class _AllSnippetsPageState extends State<AllSnippetsPage> {
               ),
             ),
             Expanded(
-              child: Container(
-                color: Colors.blueGrey[50],
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blueGrey[100],
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _error != null
-                                    ? 'All snippets'
-                                    : '${filtered.length} shown of ${_snippets.length} ${_snippets.length == 1 ? 'snippet' : 'snippets'}',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blueGrey[900],
-                                ),
-                                overflow: TextOverflow.ellipsis,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey[100],
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Text(
+                              _error != null
+                                  ? 'All snippets'
+                                  : '${filtered.length} shown of ${_snippets.length} ${_snippets.length == 1 ? 'snippet' : 'snippets'}',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blueGrey[900],
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            FilledButton.icon(
-                              onPressed: _loadSnippets,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('Refresh'),
-                            ),
-                            const SizedBox(width: 8),
-                            FilledButton.icon(
-                              onPressed: _addSnippet,
-                              icon: const Icon(Icons.add),
-                              label: const Text('Add snippet'),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 17),
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(color: Colors.blueGrey.shade200),
                           ),
-                          child: _isLoading
-                              ? const Center(
-                                  child: CircularProgressIndicator(),
-                                )
-                              : _error != null
-                              ? Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        _error!,
-                                        style: TextStyle(
-                                          color: Colors.red[700],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      FilledButton(
-                                        onPressed: _loadSnippets,
-                                        child: const Text('Retry'),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : _snippets.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    'No snippets found in project.',
-                                    style: TextStyle(
-                                      color: Colors.blueGrey[600],
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                )
-                              : filtered.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    'No snippets match the selected filters.',
-                                    style: TextStyle(
-                                      color: Colors.blueGrey[600],
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                )
-                              : ListView.builder(
-                                  itemCount: filtered.length,
-                                  itemBuilder: (context, index) {
-                                    final item = filtered[index];
-                                    final preview = item.code
-                                        .split('\n')
-                                        .where((line) => line.trim().isNotEmpty)
-                                        .take(2)
-                                        .join('  ');
-
-                                    return Container(
-                                      margin: const EdgeInsets.only(
-                                        left: 12,
-                                        right: 12,
-                                        top: 8,
-                                        bottom: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(5),
-                                        border: Border.all(
-                                          color: Colors.blueGrey.shade200,
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(12),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    item.title,
-                                                    style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 16,
-                                                      color:
-                                                          Colors.blueGrey[900],
-                                                    ),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                                IconButton(
-                                                  tooltip: 'Copy code',
-                                                  onPressed: () =>
-                                                      _copySnippet(item),
-                                                  icon: const Icon(Icons.copy),
-                                                ),
-                                                IconButton(
-                                                  tooltip: 'Move snippet',
-                                                  onPressed: () =>
-                                                      _moveSnippet(item),
-                                                  icon: const Icon(
-                                                    Icons
-                                                        .drive_file_move_outline,
-                                                  ),
-                                                ),
-                                                IconButton(
-                                                  tooltip: 'Edit snippet',
-                                                  onPressed: () =>
-                                                      _editSnippet(item),
-                                                  icon:
-                                                      const Icon(Icons.edit),
-                                                ),
-                                                IconButton(
-                                                  tooltip: 'Delete snippet',
-                                                  onPressed: () =>
-                                                      _deleteSnippet(item),
-                                                  icon:
-                                                      const Icon(Icons.delete),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Wrap(
-                                              spacing: 8,
-                                              runSpacing: 6,
-                                              children: [
-                                                Chip(
-                                                  label: Text(item.projectName),
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                ),
-                                                Chip(
-                                                  label: Text(
-                                                    'added ${_formatDate(item.createdAtDate)}',
-                                                  ),
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                ),
-                                                Chip(
-                                                  label: Text(
-                                                    item.language.isEmpty
-                                                        ? 'unknown'
-                                                        : item.language,
-                                                  ),
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              preview.isEmpty
-                                                  ? '(empty code)'
-                                                  : preview,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontFamily: 'monospace',
-                                                color: Colors.blueGrey[700],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 18),
+                        _buildToolbarAction(
+                          icon: Icons.add,
+                          label: 'Add Snippet',
+                          onTap: _addSnippet,
+                        ),
+                        const SizedBox(width: 18),
+                        _buildToolbarAction(
+                          icon: Icons.refresh,
+                          label: 'Refresh',
+                          onTap: _loadSnippets,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _error != null
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _error!,
+                                    style: TextStyle(color: Colors.red[700]),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  FilledButton(
+                                    onPressed: _loadSnippets,
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _snippets.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No snippets yet.',
+                                style: TextStyle(
+                                  color: Colors.blueGrey[500],
+                                  fontSize: 16,
+                                ),
+                              ),
+                            )
+                          : filtered.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No snippets match the selected filters.',
+                                style: TextStyle(
+                                  color: Colors.blueGrey[600],
+                                  fontSize: 15,
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final item = filtered[index];
+                                final preview = item.code
+                                    .split('\n')
+                                    .where((line) => line.trim().isNotEmpty)
+                                    .take(2)
+                                    .join(' ');
+                                final language = item.language.isEmpty
+                                    ? 'unknown'
+                                    : item.language;
+                                final details =
+                                    '$language  •  ${item.projectName}  •  added ${_formatDate(item.createdAtDate)}';
+
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 2,
+                                  ),
+                                  child: Material(
+                                    color: Colors.blueGrey[200],
+                                    borderRadius: BorderRadius.circular(5),
+                                    child: ListTile(
+                                      leading: Icon(
+                                        Icons.code,
+                                        color: Colors.blueGrey[800],
+                                      ),
+                                      title: Text(
+                                        item.title,
+                                        style: TextStyle(
+                                          color: Colors.blueGrey[900],
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        preview.isEmpty
+                                            ? details
+                                            : '$details\n$preview',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: Colors.blueGrey[700],
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            tooltip: 'Copy snippet code',
+                                            onPressed: () => _copySnippet(item),
+                                            icon: Icon(
+                                              Icons.copy,
+                                              color: Colors.blueGrey[600],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Edit snippet',
+                                            onPressed: () => _editSnippet(item),
+                                            icon: Icon(
+                                              Icons.edit,
+                                              color: Colors.blueGrey[600],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Move snippet',
+                                            onPressed: () => _moveSnippet(item),
+                                            icon: Icon(
+                                              Icons.drive_file_move_outline,
+                                              color: Colors.blueGrey[600],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Delete snippet',
+                                            onPressed: () =>
+                                                _deleteSnippet(item),
+                                            icon: Icon(
+                                              Icons.delete,
+                                              color: Colors.blueGrey[700],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
                 ),
               ),
             ),
