@@ -1,4 +1,4 @@
-import 'package:devbox/all_snippets.dart';
+import 'package:devbox/tools/all_snippets.dart';
 import 'package:devbox/globals.dart';
 import 'package:devbox/project.dart';
 import 'package:devbox/tools_pages.dart';
@@ -683,8 +683,8 @@ class _HomeState extends State<Home> {
                               padding: const EdgeInsets.all(8.0),
                               child: Image(
                                 image: AssetImage('assets/devbox_logo.png'),
-                                width: 40,
-                                height: 40,
+                                width: 50,
+                                height: 50,
                               ),
                             ),
                             SizedBox(width: 12),
