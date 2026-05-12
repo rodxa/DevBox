@@ -15,7 +15,7 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   Directory contentFolder = Directory(
-    'C:/Users/Utilizador/Desktop/devbox_content',
+    'devbox_content',
   );
   List<Directory> projectFolders = [];
   final List<_ShortcutItem> shortcuts = [];
@@ -122,14 +122,15 @@ class _HomeState extends State<Home> {
   }
 
   void loadProjects() {
-    if (contentFolder.existsSync()) {
-      setState(() {
-        projectFolders = contentFolder
-            .listSync()
-            .whereType<Directory>()
-            .toList();
-      });
+    if (!contentFolder.existsSync()) {
+      contentFolder.createSync(recursive: true);
     }
+    setState(() {
+      projectFolders = contentFolder
+          .listSync()
+          .whereType<Directory>()
+          .toList();
+    });
   }
 
   void _loadShortcuts() {

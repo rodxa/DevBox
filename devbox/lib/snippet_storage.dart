@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-const String devboxContentPath = 'C:/Users/Utilizador/Desktop/devbox_content';
+const String devboxContentPath = 'devbox_content';
 const String globalSnippetBucketName = 'Global';
 const String snippetCreatedAtField = 'createdAt';
 const List<String> snippetLanguageOptions = <String>[
@@ -30,7 +30,11 @@ const List<String> snippetLanguageOptions = <String>[
 ];
 
 Directory getDevboxContentFolder() {
-  return Directory(devboxContentPath);
+  final folder = Directory(devboxContentPath);
+  if (!folder.existsSync()) {
+    folder.createSync(recursive: true);
+  }
+  return folder;
 }
 
 File getGlobalSnippetsFile() {
@@ -48,7 +52,7 @@ File getProjectSnippetsFile(Directory projectFolder) {
 List<Directory> listProjectFolders({Directory? contentFolder}) {
   final root = contentFolder ?? getDevboxContentFolder();
   if (!root.existsSync()) {
-    return <Directory>[];
+    root.createSync(recursive: true);
   }
 
   return root.listSync().whereType<Directory>().toList();
