@@ -5,7 +5,6 @@
 DevBox is a desktop application focused on helping small developers and indie teams manage projects, tools, databases, snippets, files, integrations, and visual workflows in one place.
 
 The goal is not to replace existing platforms, but to make development workflows faster and more convenient by centralizing everything into a clean and lightweight workspace.
--SurfaceToAirMissile was here
 ---
 
 # ✨ Features
