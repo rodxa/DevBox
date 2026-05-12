@@ -34,8 +34,12 @@ DevBox supports two database approaches:
 * Create tables
 * Manage data directly inside DevBox
 
----
+## Online Databases (not yet)
 
+* Supabase
+* Firebase
+
+---
 # 🧩 Planned Features
 
 ## Developer Tools
