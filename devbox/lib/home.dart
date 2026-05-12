@@ -29,6 +29,98 @@ class _HomeState extends State<Home> {
   File get _shortcutsFile =>
       File('${contentFolder.path}${Platform.pathSeparator}shortcuts.json');
 
+  Future<void> _setupTechWorkspace(
+    String filesPath,
+    String techKey,
+    String projectName,
+  ) async {
+    switch (techKey) {
+      case 'flutter':
+        final flutterPackageName = projectName
+            .toLowerCase()
+            .replaceAll(RegExp(r'[^a-z0-9_]'), '_')
+            .replaceAll(RegExp(r'_+'), '_')
+            .replaceAll(RegExp(r'^_+|_+$'), '');
+        await Process.run(
+          'flutter',
+          ['create', '--project-name', flutterPackageName, '.'],
+          workingDirectory: filesPath,
+          runInShell: true,
+        );
+        break;
+      case 'nodejs':
+        await Process.run(
+          'npm',
+          ['init', '-y'],
+          workingDirectory: filesPath,
+          runInShell: true,
+        );
+        break;
+      case 'python':
+        await Process.run(
+          'python',
+          ['-m', 'venv', 'venv'],
+          workingDirectory: filesPath,
+          runInShell: true,
+        );
+        File('$filesPath/main.py').writeAsStringSync(
+          '# $projectName\n\ndef main():\n    pass\n\nif __name__ == "__main__":\n    main()\n',
+        );
+        File('$filesPath/requirements.txt').writeAsStringSync('');
+        break;
+      case 'react':
+        await Process.run(
+          'npx',
+          ['--yes', 'create-vite@latest', '.', '--template', 'react'],
+          workingDirectory: filesPath,
+          runInShell: true,
+        );
+        break;
+      case 'html':
+        final slug = projectName;
+        File('$filesPath/index.html').writeAsStringSync(
+          '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>$slug</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <h1>$slug</h1>\n  <script src="script.js"></script>\n</body>\n</html>\n',
+        );
+        File('$filesPath/style.css').writeAsStringSync(
+          '/* Styles for $slug */\n\nbody {\n  font-family: sans-serif;\n  margin: 0;\n  padding: 20px;\n}\n',
+        );
+        File('$filesPath/script.js').writeAsStringSync(
+          '// $slug\n\ndocument.addEventListener("DOMContentLoaded", function () {\n  console.log("$slug loaded");\n});\n',
+        );
+        break;
+      case 'dotnet':
+        await Process.run(
+          'dotnet',
+          ['new', 'console', '--force'],
+          workingDirectory: filesPath,
+          runInShell: true,
+        );
+        break;
+      case 'rust':
+        await Process.run(
+          'cargo',
+          ['init'],
+          workingDirectory: filesPath,
+          runInShell: true,
+        );
+        break;
+      case 'go':
+        final modName = projectName.toLowerCase().replaceAll(' ', '-');
+        await Process.run(
+          'go',
+          ['mod', 'init', modName],
+          workingDirectory: filesPath,
+          runInShell: true,
+        );
+        File('$filesPath/main.go').writeAsStringSync(
+          'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello, $projectName!")\n}\n',
+        );
+        break;
+      default:
+        break;
+    }
+  }
+
   void loadProjects() {
     if (contentFolder.existsSync()) {
       setState(() {
@@ -411,6 +503,61 @@ class _HomeState extends State<Home> {
     }
   }
 
+  Future<bool> _checkCommandAvailable(String command) async {
+    try {
+      final result = await Process.run(
+        Platform.isWindows ? 'where' : 'which',
+        [command],
+        runInShell: true,
+      );
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _getRequiredCommand(String techKey) {
+    switch (techKey) {
+      case 'flutter':
+        return 'flutter';
+      case 'nodejs':
+        return 'npm';
+      case 'react':
+        return 'npx';
+      case 'python':
+        return 'python';
+      case 'dotnet':
+        return 'dotnet';
+      case 'rust':
+        return 'cargo';
+      case 'go':
+        return 'go';
+      default:
+        return '';
+    }
+  }
+
+  String? _getInstallUrl(String techKey) {
+    switch (techKey) {
+      case 'flutter':
+        return 'https://flutter.dev/docs/get-started/install';
+      case 'nodejs':
+        return 'https://nodejs.org/';
+      case 'react':
+        return 'https://nodejs.org/';
+      case 'python':
+        return 'https://www.python.org/downloads/';
+      case 'dotnet':
+        return 'https://dotnet.microsoft.com/download';
+      case 'rust':
+        return 'https://rustup.rs/';
+      case 'go':
+        return 'https://go.dev/dl/';
+      default:
+        return null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -453,113 +600,389 @@ class _HomeState extends State<Home> {
                           projectAlreadyExists = false;
                           showDialog(
                             context: context,
+                            barrierDismissible: false,
                             builder: (dialogContext) {
                               projectNameController.clear();
-                              Future<void> tryCreate() async {
-                                if (projectNameController.text.trim().isEmpty)
-                                  return;
-                                final typedName = projectNameController.text
-                                    .trim();
-                                bool duplicateExists = false;
-                                try {
-                                  duplicateExists = contentFolder
-                                      .listSync()
-                                      .whereType<Directory>()
-                                      .any((folder) {
-                                        final name = folder.path
-                                            .split(RegExp(r'[/\\]'))
-                                            .where((s) => s.isNotEmpty)
-                                            .last;
-                                        return name.toLowerCase() ==
-                                            typedName.toLowerCase();
+                              int step = 0;
+                              int? selectedTechIndex;
+                              bool openInVsCode = false;
+                              bool isCreating = false;
+
+                              return StatefulBuilder(
+                                builder: (ctx, setDialogState) {
+                                  Future<void> tryCreate() async {
+                                    if (projectNameController.text
+                                        .trim()
+                                        .isEmpty) return;
+                                    final typedName =
+                                        projectNameController.text.trim();
+                                    bool duplicateExists = false;
+                                    try {
+                                      duplicateExists = contentFolder
+                                          .listSync()
+                                          .whereType<Directory>()
+                                          .any((folder) {
+                                            final name = folder.path
+                                                .split(RegExp(r'[/\\]'))
+                                                .where((s) => s.isNotEmpty)
+                                                .last;
+                                            return name.toLowerCase() ==
+                                                typedName.toLowerCase();
+                                          });
+                                    } on FileSystemException {}
+                                    if (duplicateExists) {
+                                      setState(() {
+                                        projectAlreadyExists = true;
                                       });
-                                } on FileSystemException {
-                                  // If listing fails, allow creation to proceed.
-                                }
-                                if (duplicateExists) {
-                                  (dialogContext as Element).markNeedsBuild();
-                                  setState(() {
-                                    projectAlreadyExists = true;
-                                  });
-                                  return;
-                                }
-                                setState(() {
-                                  Directory newProjectDir = Directory(
-                                    '${contentFolder.path}/${projectNameController.text}',
-                                  );
-                                  newProjectDir.createSync();
-                                  projectFolders.add(newProjectDir);
+                                      setDialogState(() => step = 0);
+                                      return;
+                                    }
 
-                                  //add default folders to project
-                                  Directory(
-                                    '${newProjectDir.path}/Files',
-                                  ).createSync();
-                                  Directory(
-                                    '${newProjectDir.path}/MindMaps',
-                                  ).createSync();
-                                  Directory(
-                                    '${newProjectDir.path}/Database',
-                                  ).createSync();
-                                  Directory(
-                                    '${newProjectDir.path}/Collaborators',
-                                  ).createSync();
-                                  Directory(
-                                    '${newProjectDir.path}/Snippets',
-                                  ).createSync();
+                                    // Check if required tool is installed
+                                    bool doTechSetup =
+                                        selectedTechIndex != null;
+                                    if (selectedTechIndex != null) {
+                                      final techKey =
+                                          _kTechOptions[selectedTechIndex!].key;
+                                      final requiredCmd =
+                                          _getRequiredCommand(techKey);
+                                      if (requiredCmd.isNotEmpty) {
+                                        final available =
+                                            await _checkCommandAvailable(
+                                              requiredCmd,
+                                            );
+                                        if (!available) {
+                                          final techLabel =
+                                              _kTechOptions[selectedTechIndex!]
+                                                  .label;
+                                          final installUrl =
+                                              _getInstallUrl(techKey);
+                                          final action =
+                                              await showDialog<String>(
+                                                context: ctx,
+                                                builder:
+                                                    (innerCtx) => AlertDialog(
+                                                      shape: RoundedRectangleBorder(
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              5,
+                                                            ),
+                                                      ),
+                                                      title: Row(
+                                                        children: [
+                                                          Icon(
+                                                            Icons.warning_amber,
+                                                            color: Colors
+                                                                .orange[700],
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 10,
+                                                          ),
+                                                          Expanded(
+                                                            child: Text(
+                                                              '$techLabel not found',
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      content: Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(
+                                                            '"$requiredCmd" is not installed or not in your PATH.',
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w500,
+                                                                ),
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 10,
+                                                          ),
+                                                          Text(
+                                                            'Without it the project workspace cannot be scaffolded. '
+                                                            'You can install $techLabel and try again, or create an empty project and set it up later.',
+                                                          ),
+                                                          if (installUrl !=
+                                                              null) ...[
+                                                            const SizedBox(
+                                                              height: 14,
+                                                            ),
+                                                            Text(
+                                                              'Install page: $installUrl',
+                                                              style: TextStyle(
+                                                                color: Colors
+                                                                    .blueGrey[600],
+                                                                fontSize: 12,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ],
+                                                      ),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () =>
+                                                              Navigator.of(
+                                                                innerCtx,
+                                                              ).pop('cancel'),
+                                                          child: const Text(
+                                                            'Cancel',
+                                                          ),
+                                                        ),
+                                                        TextButton(
+                                                          onPressed: () =>
+                                                              Navigator.of(
+                                                                innerCtx,
+                                                              ).pop('skip'),
+                                                          child: const Text(
+                                                            'Create Without Scaffold',
+                                                          ),
+                                                        ),
+                                                        if (installUrl !=
+                                                            null)
+                                                          ElevatedButton.icon(
+                                                            icon: const Icon(
+                                                              Icons.open_in_browser,
+                                                              size: 16,
+                                                            ),
+                                                            label: Text(
+                                                              'Install $techLabel',
+                                                            ),
+                                                            onPressed: () =>
+                                                                Navigator.of(
+                                                                  innerCtx,
+                                                                ).pop('install'),
+                                                          ),
+                                                      ],
+                                                    ),
+                                              );
+                                          if (action == null ||
+                                              action == 'cancel') {
+                                            return;
+                                          }
+                                          if (action == 'install') {
+                                            await _openShortcutUrl(installUrl!);
+                                            return;
+                                          }
+                                          // 'skip' — create project without scaffold
+                                          doTechSetup = false;
+                                        }
+                                      }
+                                    }
 
-                                  //add default files to project
-                                  File(
-                                    '${newProjectDir.path}/README.md',
-                                  ).writeAsStringSync(
-                                    '# ${projectNameController.text}\n\nProject description goes here.',
-                                  );
-                                  File(
-                                    '${newProjectDir.path}/.gitignore',
-                                  ).writeAsStringSync(
-                                    'bin/\nbuild/\n.idea/\n.vscode/\n*.iml\n',
-                                  );
-                                  File(
-                                    '${newProjectDir.path}/Collaborators/collaborators.json',
-                                  ).writeAsStringSync(
-                                    // collaborator structure: { "collaborators": [ { "name": "Alice", "email": "alice@example.com" } ] }
-                                    '{\n  "collaborators": [{"name":"me", "email":"me@example.com"}]\n}\n',
-                                  );
-                                });
-                                loadProjects();
-                                Navigator.of(dialogContext).pop();
-                              }
-
-                              return AlertDialog(
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                                title: Text('Create New Project'),
-                                content: TextField(
-                                  controller: projectNameController,
-                                  decoration: InputDecoration(
-                                    hintText: 'Project Name',
-                                    errorText: projectAlreadyExists
-                                        ? 'A project with this name already exists.'
-                                        : null,
-                                  ),
-                                  onSubmitted: (_) async {
-                                    await tryCreate();
-                                  },
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () {
+                                    setDialogState(() => isCreating = true);
+                                    final newProjectDir = Directory(
+                                      '${contentFolder.path}/$typedName',
+                                    );
+                                    newProjectDir.createSync();
+                                    Directory(
+                                      '${newProjectDir.path}/Files',
+                                    ).createSync();
+                                    Directory(
+                                      '${newProjectDir.path}/MindMaps',
+                                    ).createSync();
+                                    Directory(
+                                      '${newProjectDir.path}/Database',
+                                    ).createSync();
+                                    Directory(
+                                      '${newProjectDir.path}/Collaborators',
+                                    ).createSync();
+                                    Directory(
+                                      '${newProjectDir.path}/Snippets',
+                                    ).createSync();
+                                    File(
+                                      '${newProjectDir.path}/README.md',
+                                    ).writeAsStringSync(
+                                      '# $typedName\n\nProject description goes here.',
+                                    );
+                                    File(
+                                      '${newProjectDir.path}/.gitignore',
+                                    ).writeAsStringSync(
+                                      'bin/\nbuild/\n.idea/\n.vscode/\n*.iml\n',
+                                    );
+                                    File(
+                                      '${newProjectDir.path}/Collaborators/collaborators.json',
+                                    ).writeAsStringSync(
+                                      '{\n  "collaborators": [{"name":"me", "email":"me@example.com"}]\n}\n',
+                                    );
+                                    final filesPath =
+                                        '${newProjectDir.path}/Files';
+                                    if (doTechSetup &&
+                                        selectedTechIndex != null) {
+                                      final techKey =
+                                          _kTechOptions[selectedTechIndex!].key;
+                                      try {
+                                        await _setupTechWorkspace(
+                                          filesPath,
+                                          techKey,
+                                          typedName,
+                                        );
+                                      } catch (_) {}
+                                    }
+                                    if (openInVsCode) {
+                                      try {
+                                        await Process.run(
+                                          'code',
+                                          [filesPath],
+                                          runInShell: true,
+                                        );
+                                      } catch (_) {}
+                                    }
+                                    setState(() {
+                                      projectFolders.add(newProjectDir);
+                                    });
+                                    loadProjects();
+                                    if (dialogContext.mounted) {
                                       Navigator.of(dialogContext).pop();
-                                    },
-                                    child: Text('Cancel'),
-                                  ),
-                                  ElevatedButton(
-                                    onPressed: () async {
-                                      await tryCreate();
-                                    },
-                                    child: Text('Create'),
-                                  ),
-                                ],
+                                    }
+                                  }
+
+                                  // ── Step 0: project name ──
+                                  if (step == 0) {
+                                    return AlertDialog(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      title: Text('Create New Project'),
+                                      content: SizedBox(
+                                        width: 320,
+                                        child: TextField(
+                                          controller: projectNameController,
+                                          autofocus: true,
+                                          decoration: InputDecoration(
+                                            hintText: 'Project Name',
+                                            errorText: projectAlreadyExists
+                                                ? 'A project with this name already exists.'
+                                                : null,
+                                          ),
+                                          onSubmitted: (_) {
+                                            if (projectNameController.text
+                                                .trim()
+                                                .isNotEmpty) {
+                                              setState(() {
+                                                projectAlreadyExists = false;
+                                              });
+                                              setDialogState(() => step = 1);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.of(dialogContext).pop(),
+                                          child: Text('Cancel'),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () {
+                                            if (projectNameController.text
+                                                .trim()
+                                                .isNotEmpty) {
+                                              setState(() {
+                                                projectAlreadyExists = false;
+                                              });
+                                              setDialogState(() => step = 1);
+                                            }
+                                          },
+                                          child: Text('Next'),
+                                        ),
+                                      ],
+                                    );
+                                  }
+
+                                  // ── Step 1: tech selection ──
+                                  return AlertDialog(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    title: Text('What are you building?'),
+                                    content: SizedBox(
+                                      width: 420,
+                                      child: isCreating
+                                          ? SizedBox(
+                                              height: 80,
+                                              child: Center(
+                                                child:
+                                                    CircularProgressIndicator(),
+                                              ),
+                                            )
+                                          : Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Wrap(
+                                                  spacing: 8,
+                                                  runSpacing: 8,
+                                                  children: List.generate(
+                                                    _kTechOptions.length,
+                                                    (i) {
+                                                      final opt =
+                                                          _kTechOptions[i];
+                                                      final selected =
+                                                          selectedTechIndex ==
+                                                          i;
+                                                      return ChoiceChip(
+                                                        avatar: Icon(
+                                                          opt.icon,
+                                                          size: 16,
+                                                          color: selected
+                                                              ? Colors.white
+                                                              : null,
+                                                        ),
+                                                        label: Text(opt.label),
+                                                        selected: selected,
+                                                        onSelected: (_) =>
+                                                            setDialogState(
+                                                              () =>
+                                                                  selectedTechIndex =
+                                                                      selected
+                                                                      ? null
+                                                                      : i,
+                                                            ),
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                                SizedBox(height: 12),
+                                                CheckboxListTile(
+                                                  contentPadding:
+                                                      EdgeInsets.zero,
+                                                  title: Text(
+                                                    'Open Files folder in VS Code',
+                                                  ),
+                                                  value: openInVsCode,
+                                                  onChanged: (v) =>
+                                                      setDialogState(
+                                                        () => openInVsCode =
+                                                            v ?? false,
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
+                                    ),
+                                    actions: isCreating
+                                        ? []
+                                        : [
+                                            TextButton(
+                                              onPressed: () =>
+                                                  setDialogState(() => step = 0),
+                                              child: Text('Back'),
+                                            ),
+                                            ElevatedButton(
+                                              onPressed: () async {
+                                                await tryCreate();
+                                              },
+                                              child: Text('Create'),
+                                            ),
+                                          ],
+                                  );
+                                },
                               );
                             },
                           );
@@ -916,3 +1339,22 @@ class _ShortcutItem {
   final String name;
   final String url;
 }
+
+class _TechOption {
+  const _TechOption(this.label, this.icon, this.key);
+  final String label;
+  final IconData icon;
+  final String key;
+}
+
+const List<_TechOption> _kTechOptions = [
+  _TechOption('Flutter', Icons.phone_android, 'flutter'),
+  _TechOption('Node.js', Icons.javascript, 'nodejs'),
+  _TechOption('Python', Icons.code, 'python'),
+  _TechOption('React', Icons.web, 'react'),
+  _TechOption('HTML/CSS/JS', Icons.html, 'html'),
+  _TechOption('.NET / C#', Icons.computer, 'dotnet'),
+  _TechOption('Rust', Icons.build, 'rust'),
+  _TechOption('Go', Icons.language, 'go'),
+  _TechOption('None / Empty', Icons.folder_open, 'none'),
+];

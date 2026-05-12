@@ -187,7 +187,7 @@ class _ProjectState extends State<Project> {
                     if (value == 0) {
                       return KeyedSubtree(
                         key: const ValueKey('project-dashboard'),
-                        child: Dashboard(widget.projectName),
+                        child: Dashboard(widget.projectName, widget.projectFolder),
                       );
                     }
                     if (value == 1) {
@@ -246,7 +246,7 @@ class _ProjectState extends State<Project> {
                     }
                     return KeyedSubtree(
                       key: ValueKey('project-tab-$value'),
-                      child: Dashboard(widget.projectName),
+                      child: Dashboard(widget.projectName, widget.projectFolder),
                     );
                   }(),
                 );
@@ -323,56 +323,668 @@ class DevBoxProjectButton extends StatelessWidget {
 }
 
 // ignore: non_constant_identifier_names
-Widget Dashboard(String projectName) {
-  return Container(
-    color: Colors.blueGrey[50],
-    child: Padding(
-      padding: const EdgeInsets.all(24.0),
+class Dashboard extends StatefulWidget {
+  const Dashboard(this.projectName, this.projectFolder, {super.key});
+  final String projectName;
+  final Directory projectFolder;
+
+  @override
+  State<Dashboard> createState() => _DashboardState();
+}
+
+class _DashboardState extends State<Dashboard> {
+  int _fileCount = 0;
+  int _snippetCount = 0;
+  int _mindmapCount = 0;
+  int _dbCount = 0;
+  int _collaboratorCount = 0;
+  String _readmeContent = '';
+  List<_RecentFile> _recentFiles = [];
+  bool _isEditingReadme = false;
+  late TextEditingController _readmeController;
+
+  @override
+  void initState() {
+    super.initState();
+    _readmeController = TextEditingController();
+    _loadStats();
+  }
+
+  @override
+  void dispose() {
+    _readmeController.dispose();
+    super.dispose();
+  }
+
+  void _loadStats() {
+    final p = widget.projectFolder.path;
+
+    // Files count (recursive)
+    try {
+      final filesDir = Directory('$p/Files');
+      if (filesDir.existsSync()) {
+        _fileCount = filesDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .length;
+        final allFiles = filesDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .toList()
+          ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+        _recentFiles = allFiles.take(5).map((f) {
+          final rel = f.path.replaceFirst('$p/Files', '').replaceAll('\\', '/');
+          return _RecentFile(rel.startsWith('/') ? rel.substring(1) : rel, f.statSync().modified);
+        }).toList();
+      }
+    } on FileSystemException {}
+
+    // Snippets count
+    try {
+      final snipDir = Directory('$p/Snippets');
+      if (snipDir.existsSync()) {
+        _snippetCount = snipDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.json'))
+            .fold<int>(0, (sum, f) {
+              try {
+                final decoded = jsonDecode(f.readAsStringSync());
+                if (decoded is Map && decoded['snippets'] is List) {
+                  return sum + (decoded['snippets'] as List).length;
+                }
+              } catch (_) {}
+              return sum;
+            });
+      }
+    } on FileSystemException {}
+
+    // Mindmaps count
+    try {
+      final mmDir = Directory('$p/MindMaps');
+      if (mmDir.existsSync()) {
+        _mindmapCount = mmDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.json'))
+            .length;
+      }
+    } on FileSystemException {}
+
+    // Database count
+    try {
+      final dbDir = Directory('$p/Database');
+      if (dbDir.existsSync()) {
+        _dbCount = dbDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.json'))
+            .length;
+      }
+    } on FileSystemException {}
+
+    // Collaborators count
+    try {
+      final collabFile = File('$p/Collaborators/collaborators.json');
+      if (collabFile.existsSync()) {
+        final decoded = jsonDecode(collabFile.readAsStringSync());
+        if (decoded is Map && decoded['collaborators'] is List) {
+          _collaboratorCount = (decoded['collaborators'] as List).length;
+        }
+      }
+    } on FileSystemException {}
+
+    // README
+    try {
+      final readme = File('$p/README.md');
+      if (readme.existsSync()) {
+        _readmeContent = readme.readAsStringSync();
+        _readmeController.text = _readmeContent;
+      }
+    } on FileSystemException {}
+
+    setState(() {});
+  }
+
+  void _saveReadme() {
+    try {
+      final readmeFile = File('${widget.projectFolder.path}/README.md');
+      readmeFile.writeAsStringSync(_readmeController.text);
+      _readmeContent = _readmeController.text;
+      _isEditingReadme = false;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('README.md saved successfully'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } on FileSystemException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving README.md: $e'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _cancelEdit() {
+    _readmeController.text = _readmeContent;
+    _isEditingReadme = false;
+    setState(() {});
+  }
+
+  void _openInVsCode() {
+    final filesPath = '${widget.projectFolder.path}/Files';
+    Process.run('code', [filesPath], runInShell: true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.blueGrey[50],
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header — matches other tabs style
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey[100],
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(
+                      widget.projectName,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueGrey[900],
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _openInVsCode,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 15,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.code,
+                            size: 18,
+                            color: Colors.blueGrey[900],
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Open in VS Code',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _loadStats,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.all(13),
+                      child: Icon(
+                        Icons.refresh,
+                        size: 18,
+                        color: Colors.blueGrey[900],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Stats row
+            Row(
+              children: [
+                _StatCard(
+                  icon: Icons.folder,
+                  label: 'Files',
+                  value: '$_fileCount',
+                  color: Colors.blue,
+                ),
+                const SizedBox(width: 12),
+                _StatCard(
+                  icon: Icons.code,
+                  label: 'Snippets',
+                  value: '$_snippetCount',
+                  color: Colors.teal,
+                ),
+                const SizedBox(width: 12),
+                _StatCard(
+                  icon: Icons.map,
+                  label: 'Mind Maps',
+                  value: '$_mindmapCount',
+                  color: Colors.orange,
+                ),
+                const SizedBox(width: 12),
+                _StatCard(
+                  icon: Icons.storage,
+                  label: 'Databases',
+                  value: '$_dbCount',
+                  color: Colors.purple,
+                ),
+                const SizedBox(width: 12),
+                _StatCard(
+                  icon: Icons.people,
+                  label: 'Collaborators',
+                  value: '$_collaboratorCount',
+                  color: Colors.green,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Bottom row: README + Recent Files — fills remaining space
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blueGrey.shade100),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.description, size: 16, color: Colors.blueGrey[600]),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'README.md',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.blueGrey[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (!_isEditingReadme)
+                                Material(
+                                  color: Colors.transparent,
+                                  child: Ink(
+                                    decoration: BoxDecoration(
+                                      color: Colors.blueGrey[100],
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(4),
+                                      onTap: () {
+                                        setState(() {
+                                          _isEditingReadme = true;
+                                        });
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.edit, size: 14, color: Colors.blueGrey[700]),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Edit',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.blueGrey[700],
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Material(
+                                      color: Colors.green[100],
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(4),
+                                        onTap: _saveReadme,
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.save, size: 14, color: Colors.green[700]),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Save',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.green[700],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Material(
+                                      color: Colors.red[100],
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(4),
+                                        onTap: _cancelEdit,
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.close, size: 14, color: Colors.red[700]),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Cancel',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.red[700],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: _readmeContent.isEmpty && !_isEditingReadme
+                                ? Text(
+                                    'No README found.',
+                                    style: TextStyle(
+                                      color: Colors.blueGrey[400],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  )
+                                : _isEditingReadme
+                                    ? TextField(
+                                      textAlignVertical: TextAlignVertical.top,
+                                        controller: _readmeController,
+                                        maxLines: null,
+                                        expands: true,
+                                        decoration: InputDecoration(
+                                          border: OutlineInputBorder(
+                                            borderSide: BorderSide(color: Colors.blueGrey[300]!),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderSide: BorderSide(color: Colors.blueGrey[600]!),
+                                          ),
+                                          contentPadding: const EdgeInsets.all(8),
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.blueGrey[800],
+                                        ),
+                                      )
+                                    : SingleChildScrollView(
+                                        child: Text(
+                                          _readmeContent,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.blueGrey[800],
+                                            height: 1.5,
+                                          ),
+                                        ),
+                                      ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 2,
+                    child: _DashCard(
+                      title: 'Recently Modified',
+                      icon: Icons.history,
+                      child: _recentFiles.isEmpty
+                          ? Text(
+                              'No files yet.',
+                              style: TextStyle(
+                                color: Colors.blueGrey[400],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: _recentFiles.map((rf) {
+                                final ago = _timeAgo(rf.modified);
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.insert_drive_file,
+                                        size: 15,
+                                        color: Colors.blueGrey[400],
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          rf.name,
+                                          style: const TextStyle(fontSize: 13),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        ago,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.blueGrey[400],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+}
+
+class _RecentFile {
+  const _RecentFile(this.name, this.modified);
+  final String name;
+  final DateTime modified;
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blueGrey.shade100),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(icon, size: 20, color: color),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueGrey[900],
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    label,
+                    style: TextStyle(fontSize: 12, color: Colors.blueGrey[500]),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashCard extends StatelessWidget {
+  const _DashCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blueGrey.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey[100],
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  child: Text(
-                    projectName,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blueGrey[900],
-                    ),
-                  ),
+              Icon(icon, size: 16, color: Colors.blueGrey[600]),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blueGrey[700],
                 ),
               ),
             ],
           ),
-          SizedBox(height: 19),
-          Row(
-            children: [
-              Container(
-                width: 150,
-                height: 150,
-                decoration: BoxDecoration(
-                  color: Colors.blueGrey[200],
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: Center(child: Text("Project Image")),
-              ),
-            ],
-          ),
+          const SizedBox(height: 12),
+          child,
         ],
       ),
-    ),
-  );
+    );
+  }
 }
 
 class Files extends StatefulWidget {
