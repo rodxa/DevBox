@@ -34,8 +34,12 @@ DevBox supports two database approaches:
 * Create tables
 * Manage data directly inside DevBox
 
----
+## Online Databases (not yet)
 
+* Supabase
+* Firebase
+
+---
 # 🧩 Planned Features
 
 ## Developer Tools
@@ -93,6 +97,19 @@ The app is focused on helping developers spend less time switching between tools
 
 * Flutter
 * Dart
+
+---
+
+# 📷 Images
+
+## HomePage
+<img width="1260" height="770" alt="image" src="https://github.com/user-attachments/assets/9fb20a66-ec40-41f3-a627-66bd300476c2" />
+
+## Project Dashboard
+<img width="1261" height="772" alt="image" src="https://github.com/user-attachments/assets/2a35eeba-06fe-44c9-b10b-65e98446a4f8" />
+
+## Mindmap Canvas
+<img width="1261" height="772" alt="image" src="https://github.com/user-attachments/assets/a4aaa203-d0f6-44a7-9e52-2e2ed9fba1da" />
 
 ---
 
