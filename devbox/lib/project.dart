@@ -187,7 +187,10 @@ class _ProjectState extends State<Project> {
                     if (value == 0) {
                       return KeyedSubtree(
                         key: const ValueKey('project-dashboard'),
-                        child: Dashboard(widget.projectName, widget.projectFolder),
+                        child: Dashboard(
+                          widget.projectName,
+                          widget.projectFolder,
+                        ),
                       );
                     }
                     if (value == 1) {
@@ -246,7 +249,10 @@ class _ProjectState extends State<Project> {
                     }
                     return KeyedSubtree(
                       key: ValueKey('project-tab-$value'),
-                      child: Dashboard(widget.projectName, widget.projectFolder),
+                      child: Dashboard(
+                        widget.projectName,
+                        widget.projectFolder,
+                      ),
                     );
                   }(),
                 );
@@ -367,14 +373,16 @@ class _DashboardState extends State<Dashboard> {
             .listSync(recursive: true)
             .whereType<File>()
             .length;
-        final allFiles = filesDir
-            .listSync(recursive: true)
-            .whereType<File>()
-            .toList()
-          ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+        final allFiles =
+            filesDir.listSync(recursive: true).whereType<File>().toList()..sort(
+              (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
+            );
         _recentFiles = allFiles.take(5).map((f) {
           final rel = f.path.replaceFirst('$p/Files', '').replaceAll('\\', '/');
-          return _RecentFile(rel.startsWith('/') ? rel.substring(1) : rel, f.statSync().modified);
+          return _RecentFile(
+            rel.startsWith('/') ? rel.substring(1) : rel,
+            f.statSync().modified,
+          );
         }).toList();
       }
     } on FileSystemException {}
@@ -640,7 +648,11 @@ class _DashboardState extends State<Dashboard> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(Icons.description, size: 16, color: Colors.blueGrey[600]),
+                                  Icon(
+                                    Icons.description,
+                                    size: 16,
+                                    color: Colors.blueGrey[600],
+                                  ),
                                   const SizedBox(width: 6),
                                   Text(
                                     'README.md',
@@ -668,11 +680,18 @@ class _DashboardState extends State<Dashboard> {
                                         });
                                       },
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Icon(Icons.edit, size: 14, color: Colors.blueGrey[700]),
+                                            Icon(
+                                              Icons.edit,
+                                              size: 14,
+                                              color: Colors.blueGrey[700],
+                                            ),
                                             const SizedBox(width: 4),
                                             Text(
                                               'Edit',
@@ -699,11 +718,18 @@ class _DashboardState extends State<Dashboard> {
                                         borderRadius: BorderRadius.circular(4),
                                         onTap: _saveReadme,
                                         child: Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(Icons.save, size: 14, color: Colors.green[700]),
+                                              Icon(
+                                                Icons.save,
+                                                size: 14,
+                                                color: Colors.green[700],
+                                              ),
                                               const SizedBox(width: 4),
                                               Text(
                                                 'Save',
@@ -726,11 +752,18 @@ class _DashboardState extends State<Dashboard> {
                                         borderRadius: BorderRadius.circular(4),
                                         onTap: _cancelEdit,
                                         child: Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(Icons.close, size: 14, color: Colors.red[700]),
+                                              Icon(
+                                                Icons.close,
+                                                size: 14,
+                                                color: Colors.red[700],
+                                              ),
                                               const SizedBox(width: 4),
                                               Text(
                                                 'Cancel',
@@ -760,35 +793,39 @@ class _DashboardState extends State<Dashboard> {
                                     ),
                                   )
                                 : _isEditingReadme
-                                    ? TextField(
-                                      textAlignVertical: TextAlignVertical.top,
-                                        controller: _readmeController,
-                                        maxLines: null,
-                                        expands: true,
-                                        decoration: InputDecoration(
-                                          border: OutlineInputBorder(
-                                            borderSide: BorderSide(color: Colors.blueGrey[300]!),
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderSide: BorderSide(color: Colors.blueGrey[600]!),
-                                          ),
-                                          contentPadding: const EdgeInsets.all(8),
-                                        ),
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.blueGrey[800],
-                                        ),
-                                      )
-                                    : SingleChildScrollView(
-                                        child: Text(
-                                          _readmeContent,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: Colors.blueGrey[800],
-                                            height: 1.5,
-                                          ),
+                                ? TextField(
+                                    textAlignVertical: TextAlignVertical.top,
+                                    controller: _readmeController,
+                                    maxLines: null,
+                                    expands: true,
+                                    decoration: InputDecoration(
+                                      border: OutlineInputBorder(
+                                        borderSide: BorderSide(
+                                          color: Colors.blueGrey[300]!,
                                         ),
                                       ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderSide: BorderSide(
+                                          color: Colors.blueGrey[600]!,
+                                        ),
+                                      ),
+                                      contentPadding: const EdgeInsets.all(8),
+                                    ),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.blueGrey[800],
+                                    ),
+                                  )
+                                : SingleChildScrollView(
+                                    child: Text(
+                                      _readmeContent,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.blueGrey[800],
+                                        height: 1.5,
+                                      ),
+                                    ),
+                                  ),
                           ),
                         ],
                       ),
@@ -1002,6 +1039,7 @@ class Files extends StatefulWidget {
 }
 
 class _FilesState extends State<Files> {
+  static const int _maxInlineEditorBytes = 1024 * 1024;
   late final Directory _filesRootDirectory;
   late Directory _currentDirectory;
   final TextEditingController _folderNameController = TextEditingController();
@@ -1947,11 +1985,13 @@ class _FilesState extends State<Files> {
                                   opacity: 0.4,
                                   child: _FileItemTile(
                                     name: fileName,
+                                    onEdit: () {},
                                     onDelete: () {},
                                   ),
                                 ),
                                 child: _FileItemTile(
                                   name: fileName,
+                                  onEdit: () => _editFile(file),
                                   onDelete: () => _deleteFile(file),
                                 ),
                               );
@@ -2004,12 +2044,140 @@ class _FilesState extends State<Files> {
 
     if (mounted) setState(() {});
   }
+
+  Future<void> _editFile(File file) async {
+    final fileName = file.path.split(Platform.pathSeparator).last;
+
+    String initialContent;
+    try {
+      final fileSize = await file.length();
+      if (fileSize > _maxInlineEditorBytes) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"$fileName" is too large to edit here (max 1 MB).'),
+          ),
+        );
+        return;
+      }
+      initialContent = await file.readAsString();
+    } on FileSystemException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not read file.')));
+      return;
+    } on FormatException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This file is not plain text and cannot be edited.'),
+        ),
+      );
+      return;
+    }
+
+    final editorController = TextEditingController(text: initialContent);
+    String? saveError;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final dialogElement = dialogContext as Element;
+
+        Future<void> trySave() async {
+          try {
+            await file.writeAsString(editorController.text);
+          } on FileSystemException {
+            saveError = 'Could not save file.';
+            if (dialogElement.mounted) {
+              dialogElement.markNeedsBuild();
+            }
+            return;
+          }
+
+          if (!dialogContext.mounted) {
+            return;
+          }
+          Navigator.of(dialogContext).pop(true);
+        }
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: Text('Edit $fileName'),
+          content: SizedBox(
+            width: 760,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (saveError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      saveError!,
+                      style: TextStyle(color: Colors.red[700]),
+                    ),
+                  ),
+                SizedBox(
+                  height: 300,
+                  child: TextField(
+                    controller: editorController,
+                    expands: true,
+                    maxLines: null,
+                    minLines: null,
+                    keyboardType: TextInputType.multiline,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await trySave();
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    editorController.dispose();
+
+    if (saved != true || !mounted) {
+      return;
+    }
+
+    setState(() {});
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Saved "$fileName".')));
+  }
 }
 
 class _FileItemTile extends StatelessWidget {
-  const _FileItemTile({required this.name, required this.onDelete});
+  const _FileItemTile({
+    required this.name,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
   final String name;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -2020,6 +2188,7 @@ class _FileItemTile extends StatelessWidget {
         color: Colors.blueGrey[200],
         borderRadius: BorderRadius.circular(5),
         child: ListTile(
+          onTap: onEdit,
           leading: Icon(Icons.insert_drive_file, color: Colors.blueGrey[800]),
           title: Text(
             name,
@@ -2028,10 +2197,20 @@ class _FileItemTile extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
-          trailing: IconButton(
-            icon: Icon(Icons.delete, color: Colors.blueGrey[700]),
-            tooltip: 'Delete file',
-            onPressed: onDelete,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(Icons.edit, color: Colors.blueGrey[700]),
+                tooltip: 'Edit file',
+                onPressed: onEdit,
+              ),
+              IconButton(
+                icon: Icon(Icons.delete, color: Colors.blueGrey[700]),
+                tooltip: 'Delete file',
+                onPressed: onDelete,
+              ),
+            ],
           ),
         ),
       ),

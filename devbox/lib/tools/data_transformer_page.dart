@@ -867,7 +867,7 @@ class _DataTransformerPageState extends State<DataTransformerPage> {
 
                             return Padding(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
+                                horizontal: 12,
                                 vertical: 3,
                               ),
                               child: Material(

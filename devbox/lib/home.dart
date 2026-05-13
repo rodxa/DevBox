@@ -808,9 +808,8 @@ class _HomeState extends State<Home> {
                                     );
                                     File(
                                       '${newProjectDir.path}/Collaborators/collaborators.json',
-                                    ).writeAsStringSync(
-                                      '{\n  "collaborators": [{"name":"me", "email":"me@example.com"}]\n}\n',
                                     );
+                                    
                                     final filesPath =
                                         '${newProjectDir.path}/Files';
                                     if (doTechSetup &&
