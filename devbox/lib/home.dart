@@ -2,6 +2,7 @@ import 'package:devbox/tools/all_snippets.dart';
 import 'package:devbox/globals.dart';
 import 'package:devbox/project.dart';
 import 'package:devbox/tools_pages.dart';
+import 'package:devbox/vscode_launcher.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -14,14 +15,11 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  Directory contentFolder = Directory(
-    'devbox_content',
-  );
+  Directory contentFolder = Directory('devbox_content');
   List<Directory> projectFolders = [];
   final List<_ShortcutItem> shortcuts = [];
   int? _draggingShortcutIndex;
   ImageCache? logoCache;
-
 
   TextEditingController projectNameController = TextEditingController();
   bool projectAlreadyExists = false;
@@ -126,10 +124,7 @@ class _HomeState extends State<Home> {
       contentFolder.createSync(recursive: true);
     }
     setState(() {
-      projectFolders = contentFolder
-          .listSync()
-          .whereType<Directory>()
-          .toList();
+      projectFolders = contentFolder.listSync().whereType<Directory>().toList();
     });
   }
 
@@ -506,11 +501,9 @@ class _HomeState extends State<Home> {
 
   Future<bool> _checkCommandAvailable(String command) async {
     try {
-      final result = await Process.run(
-        Platform.isWindows ? 'where' : 'which',
-        [command],
-        runInShell: true,
-      );
+      final result = await Process.run(Platform.isWindows ? 'where' : 'which', [
+        command,
+      ], runInShell: true);
       return result.exitCode == 0;
     } catch (_) {
       return false;
@@ -614,9 +607,10 @@ class _HomeState extends State<Home> {
                                   Future<void> tryCreate() async {
                                     if (projectNameController.text
                                         .trim()
-                                        .isEmpty) return;
-                                    final typedName =
-                                        projectNameController.text.trim();
+                                        .isEmpty)
+                                      return;
+                                    final typedName = projectNameController.text
+                                        .trim();
                                     bool duplicateExists = false;
                                     try {
                                       duplicateExists = contentFolder
@@ -645,8 +639,9 @@ class _HomeState extends State<Home> {
                                     if (selectedTechIndex != null) {
                                       final techKey =
                                           _kTechOptions[selectedTechIndex!].key;
-                                      final requiredCmd =
-                                          _getRequiredCommand(techKey);
+                                      final requiredCmd = _getRequiredCommand(
+                                        techKey,
+                                      );
                                       if (requiredCmd.isNotEmpty) {
                                         final available =
                                             await _checkCommandAvailable(
@@ -656,112 +651,92 @@ class _HomeState extends State<Home> {
                                           final techLabel =
                                               _kTechOptions[selectedTechIndex!]
                                                   .label;
-                                          final installUrl =
-                                              _getInstallUrl(techKey);
-                                          final action =
-                                              await showDialog<String>(
-                                                context: ctx,
-                                                builder:
-                                                    (innerCtx) => AlertDialog(
-                                                      shape: RoundedRectangleBorder(
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              5,
-                                                            ),
-                                                      ),
-                                                      title: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.warning_amber,
-                                                            color: Colors
-                                                                .orange[700],
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 10,
-                                                          ),
-                                                          Expanded(
-                                                            child: Text(
-                                                              '$techLabel not found',
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      content: Column(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .start,
-                                                        children: [
-                                                          Text(
-                                                            '"$requiredCmd" is not installed or not in your PATH.',
-                                                            style:
-                                                                const TextStyle(
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w500,
-                                                                ),
-                                                          ),
-                                                          const SizedBox(
-                                                            height: 10,
-                                                          ),
-                                                          Text(
-                                                            'Without it the project workspace cannot be scaffolded. '
-                                                            'You can install $techLabel and try again, or create an empty project and set it up later.',
-                                                          ),
-                                                          if (installUrl !=
-                                                              null) ...[
-                                                            const SizedBox(
-                                                              height: 14,
-                                                            ),
-                                                            Text(
-                                                              'Install page: $installUrl',
-                                                              style: TextStyle(
-                                                                color: Colors
-                                                                    .blueGrey[600],
-                                                                fontSize: 12,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ],
-                                                      ),
-                                                      actions: [
-                                                        TextButton(
-                                                          onPressed: () =>
-                                                              Navigator.of(
-                                                                innerCtx,
-                                                              ).pop('cancel'),
-                                                          child: const Text(
-                                                            'Cancel',
-                                                          ),
-                                                        ),
-                                                        TextButton(
-                                                          onPressed: () =>
-                                                              Navigator.of(
-                                                                innerCtx,
-                                                              ).pop('skip'),
-                                                          child: const Text(
-                                                            'Create Without Scaffold',
-                                                          ),
-                                                        ),
-                                                        if (installUrl !=
-                                                            null)
-                                                          ElevatedButton.icon(
-                                                            icon: const Icon(
-                                                              Icons.open_in_browser,
-                                                              size: 16,
-                                                            ),
-                                                            label: Text(
-                                                              'Install $techLabel',
-                                                            ),
-                                                            onPressed: () =>
-                                                                Navigator.of(
-                                                                  innerCtx,
-                                                                ).pop('install'),
-                                                          ),
-                                                      ],
+                                          final installUrl = _getInstallUrl(
+                                            techKey,
+                                          );
+                                          final action = await showDialog<String>(
+                                            context: ctx,
+                                            builder: (innerCtx) => AlertDialog(
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(5),
+                                              ),
+                                              title: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.warning_amber,
+                                                    color: Colors.orange[700],
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Text(
+                                                      '$techLabel not found',
                                                     ),
-                                              );
+                                                  ),
+                                                ],
+                                              ),
+                                              content: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    '"$requiredCmd" is not installed or not in your PATH.',
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 10),
+                                                  Text(
+                                                    'Without it the project workspace cannot be scaffolded. '
+                                                    'You can install $techLabel and try again, or create an empty project and set it up later.',
+                                                  ),
+                                                  if (installUrl != null) ...[
+                                                    const SizedBox(height: 14),
+                                                    Text(
+                                                      'Install page: $installUrl',
+                                                      style: TextStyle(
+                                                        color: Colors
+                                                            .blueGrey[600],
+                                                        fontSize: 12,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(
+                                                    innerCtx,
+                                                  ).pop('cancel'),
+                                                  child: const Text('Cancel'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(
+                                                    innerCtx,
+                                                  ).pop('skip'),
+                                                  child: const Text(
+                                                    'Create Without Scaffold',
+                                                  ),
+                                                ),
+                                                if (installUrl != null)
+                                                  ElevatedButton.icon(
+                                                    icon: const Icon(
+                                                      Icons.open_in_browser,
+                                                      size: 16,
+                                                    ),
+                                                    label: Text(
+                                                      'Install $techLabel',
+                                                    ),
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          innerCtx,
+                                                        ).pop('install'),
+                                                  ),
+                                              ],
+                                            ),
+                                          );
                                           if (action == null ||
                                               action == 'cancel') {
                                             return;
@@ -809,7 +784,7 @@ class _HomeState extends State<Home> {
                                     File(
                                       '${newProjectDir.path}/Collaborators/collaborators.json',
                                     );
-                                    
+
                                     final filesPath =
                                         '${newProjectDir.path}/Files';
                                     if (doTechSetup &&
@@ -825,13 +800,20 @@ class _HomeState extends State<Home> {
                                       } catch (_) {}
                                     }
                                     if (openInVsCode) {
-                                      try {
-                                        await Process.run(
-                                          'code',
-                                          [filesPath],
-                                          runInShell: true,
+                                      final opened = await openFolderInVsCode(
+                                        filesPath,
+                                      );
+                                      if (!opened && mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Could not open VS Code. Make sure VS Code is installed and the "code" command is available.',
+                                            ),
+                                          ),
                                         );
-                                      } catch (_) {}
+                                      }
                                     }
                                     setState(() {
                                       projectFolders.add(newProjectDir);
@@ -970,8 +952,9 @@ class _HomeState extends State<Home> {
                                         ? []
                                         : [
                                             TextButton(
-                                              onPressed: () =>
-                                                  setDialogState(() => step = 0),
+                                              onPressed: () => setDialogState(
+                                                () => step = 0,
+                                              ),
                                               child: Text('Back'),
                                             ),
                                             ElevatedButton(

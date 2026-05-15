@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:devbox/database.dart';
+import 'package:devbox/drawings.dart';
 import 'package:devbox/globals.dart';
 import 'package:devbox/mindmap.dart';
 import 'package:devbox/snippets.dart';
+import 'package:devbox/vscode_launcher.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 
@@ -128,6 +130,16 @@ class _ProjectState extends State<Project> {
                       DevBoxProjectButton(
                         onTap: () {
                           setState(() {
+                            Globals().projectTab.value = 7;
+                          });
+                        },
+                        text: "Drawings",
+                        icon: Icons.brush,
+                        id: 7,
+                      ),
+                      DevBoxProjectButton(
+                        onTap: () {
+                          setState(() {
                             Globals().projectTab.value = 5;
                           });
                         },
@@ -242,6 +254,15 @@ class _ProjectState extends State<Project> {
                       return KeyedSubtree(
                         key: const ValueKey('project-snippets'),
                         child: Snippets(
+                          projectName: widget.projectName,
+                          projectFolder: widget.projectFolder,
+                        ),
+                      );
+                    }
+                    if (value == 7) {
+                      return KeyedSubtree(
+                        key: const ValueKey('project-drawings'),
+                        child: Drawings(
                           projectName: widget.projectName,
                           projectFolder: widget.projectFolder,
                         ),
@@ -483,9 +504,18 @@ class _DashboardState extends State<Dashboard> {
     setState(() {});
   }
 
-  void _openInVsCode() {
+  void _openInVsCode() async {
     final filesPath = '${widget.projectFolder.path}/Files';
-    Process.run('code', [filesPath], runInShell: true);
+    final opened = await openFolderInVsCode(filesPath);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not open VS Code. Make sure VS Code is installed and the "code" command is available.',
+          ),
+        ),
+      );
+    }
   }
 
   @override
