@@ -76,7 +76,6 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
 
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _outputController = TextEditingController();
-  final ScrollController _sidebarScrollController = ScrollController();
 
   bool _removeComments = true;
   bool _keepInputStructure = true;
@@ -94,7 +93,6 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
   void dispose() {
     _inputController.dispose();
     _outputController.dispose();
-    _sidebarScrollController.dispose();
     super.dispose();
   }
 
@@ -426,104 +424,116 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
       body: Row(
         children: [
           Container(
-            width: 240,
+            width: 220,
             color: Colors.blueGrey[900],
-            child: SafeArea(
-              child: Scrollbar(
-                controller: _sidebarScrollController,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: _sidebarScrollController,
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 24,
+                  ),
+                  child: Row(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.arrow_back),
-                              color: Colors.white,
-                              onPressed: () => Navigator.of(context).pop(),
-                            ),
-                            const SizedBox(width: 6),
-                            const Expanded(
-                              child: Text(
-                                'Code Obfuscator',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        color: Colors.white,
+                        onPressed: () => Navigator.of(context).pop(),
                       ),
-                      const Divider(height: 1, color: Colors.white24),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                      const SizedBox(width: 8),
+                      const Expanded(
                         child: Text(
-                          'Obfuscation Rules',
+                          'Code Obfuscator',
                           style: TextStyle(
-                            color: Colors.blueGrey[100],
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
                           ),
-                        ),
-                      ),
-                      _RuleTile(
-                        label: 'Rename identifiers',
-                        subtitle: 'Rule 1 - rename to _0x hex names',
-                        value: _renameIdentifiers,
-                        onChanged: (v) => setState(() => _renameIdentifiers = v),
-                      ),
-                      _RuleTile(
-                        label: 'Conceal strings',
-                        subtitle: 'Rule 2 - encode literals as char-code arrays',
-                        value: _concealStrings,
-                        onChanged: (v) => setState(() => _concealStrings = v),
-                      ),
-                      _RuleTile(
-                        label: 'Obfuscate control flow',
-                        subtitle: 'Rule 3 - inject opaque dead branches on if blocks',
-                        value: _obfuscateControlFlow,
-                        onChanged: (v) => setState(() => _obfuscateControlFlow = v),
-                      ),
-                      _RuleTile(
-                        label: 'Inject dead code',
-                        subtitle: 'Rule 4 - insert unreachable blocks in bodies',
-                        value: _injectDeadCode,
-                        onChanged: (v) => setState(() => _injectDeadCode = v),
-                      ),
-                      _RuleTile(
-                        label: 'Strip comments',
-                        subtitle: 'Rule 5 - remove // and /* */ comments',
-                        value: _removeComments,
-                        onChanged: (v) => setState(() => _removeComments = v),
-                      ),
-                      _RuleTile(
-                        label: 'Strip formatting',
-                        subtitle: 'Rule 6 - reformat and minify output',
-                        value: !_keepInputStructure,
-                        onChanged: (v) => setState(() => _keepInputStructure = !v),
-                      ),
-                      const SizedBox(height: 8),
-                      const Divider(height: 1, color: Colors.white24),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                        child: Text(
-                          'Input is validated as code before obfuscation.',
-                          style: TextStyle(color: Colors.blueGrey[200], height: 1.4),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
+                const SizedBox(height: 6),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                          child: Text(
+                            'Obfuscation Rules',
+                            style: TextStyle(
+                              color: Colors.blueGrey[100],
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                        _RuleTile(
+                          label: 'Rename identifiers',
+                          subtitle: 'Rule 1 - rename to _0x hex names',
+                          value: _renameIdentifiers,
+                          onChanged: (v) =>
+                              setState(() => _renameIdentifiers = v),
+                        ),
+                        _RuleTile(
+                          label: 'Conceal strings',
+                          subtitle:
+                              'Rule 2 - encode literals as char-code arrays',
+                          value: _concealStrings,
+                          onChanged: (v) => setState(() => _concealStrings = v),
+                        ),
+                        _RuleTile(
+                          label: 'Obfuscate control flow',
+                          subtitle:
+                              'Rule 3 - inject opaque dead branches on if blocks',
+                          value: _obfuscateControlFlow,
+                          onChanged: (v) =>
+                              setState(() => _obfuscateControlFlow = v),
+                        ),
+                        _RuleTile(
+                          label: 'Inject dead code',
+                          subtitle:
+                              'Rule 4 - insert unreachable blocks in bodies',
+                          value: _injectDeadCode,
+                          onChanged: (v) => setState(() => _injectDeadCode = v),
+                        ),
+                        _RuleTile(
+                          label: 'Strip comments',
+                          subtitle: 'Rule 5 - remove // and /* */ comments',
+                          value: _removeComments,
+                          onChanged: (v) => setState(() => _removeComments = v),
+                        ),
+                        _RuleTile(
+                          label: 'Strip formatting',
+                          subtitle: 'Rule 6 - reformat and minify output',
+                          value: !_keepInputStructure,
+                          onChanged: (v) =>
+                              setState(() => _keepInputStructure = !v),
+                        ),
+                        const SizedBox(height: 8),
+                        const Divider(height: 1, color: Colors.white24),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                          child: Text(
+                            'Input is validated as code before obfuscation.',
+                            style: TextStyle(
+                              color: Colors.blueGrey[200],
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
