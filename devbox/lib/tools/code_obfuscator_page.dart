@@ -76,10 +76,14 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
 
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _outputController = TextEditingController();
+  final ScrollController _sidebarScrollController = ScrollController();
 
   bool _removeComments = true;
   bool _keepInputStructure = true;
   bool _renameIdentifiers = true;
+  bool _concealStrings = true;
+  bool _obfuscateControlFlow = true;
+  bool _injectDeadCode = true;
   String? _inputError;
 
   bool get _hasValidCode {
@@ -90,6 +94,7 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
   void dispose() {
     _inputController.dispose();
     _outputController.dispose();
+    _sidebarScrollController.dispose();
     super.dispose();
   }
 
@@ -135,9 +140,12 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
     if (_renameIdentifiers) {
       output = _obfuscateIdentifiers(output);
     }
-    if (!_keepInputStructure) {
-      output = _prettifyCode(output);
+    if (_concealStrings) output = _concealStringLiterals(output);
+    if (_obfuscateControlFlow) {
+      output = _applyControlFlowObfuscation(output);
     }
+    if (_injectDeadCode) output = _injectDeadCodeBlocks(output);
+    if (!_keepInputStructure) output = _flattenCode(output);
 
     setState(() {
       _inputError = null;
@@ -163,13 +171,90 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
       if (RegExp(r'^_+$').hasMatch(token)) {
         return token;
       }
-      return map.putIfAbsent(token, () => 'v${counter++}');
+      if (token == r'_$s') return token;
+      return map.putIfAbsent(
+        token,
+        () => '_0x${(counter++).toRadixString(16).padLeft(4, '0')}',
+      );
     }
 
     return input.replaceAllMapped(tokenPattern, replacement);
   }
 
-  String _prettifyCode(String input) {
+  // ─── Rule 2: String concealment ───────────────────────────────────────────
+
+  String _concealStringLiterals(String input) {
+    const decoder = 'String _\$s(List<int> c)=>String.fromCharCodes(c);';
+    final result = StringBuffer();
+    var i = 0;
+    var anyReplaced = false;
+    while (i < input.length) {
+      final ch = input[i];
+      if (ch == '`') {
+        final end = _findClosingQuote(input, i, '`');
+        result.write(input.substring(i, end));
+        i = end;
+        continue;
+      }
+      if (ch == "'" || ch == '"') {
+        final end = _findClosingQuote(input, i, ch);
+        final raw = input.substring(i + 1, end - 1);
+        if (raw.isNotEmpty && !raw.contains('\\') && !raw.contains('\n')) {
+          final codes = raw.codeUnits.join(',');
+          result.write('_\$s([$codes])');
+          anyReplaced = true;
+        } else {
+          result.write(input.substring(i, end));
+        }
+        i = end;
+        continue;
+      }
+      result.write(ch);
+      i++;
+    }
+    return anyReplaced ? '$decoder\n${result.toString()}' : result.toString();
+  }
+
+  int _findClosingQuote(String input, int start, String quote) {
+    var i = start + 1;
+    while (i < input.length) {
+      if (input[i] == '\\') { i += 2; continue; }
+      if (input[i] == quote) return i + 1;
+      i++;
+    }
+    return input.length;
+  }
+
+  // ─── Rule 3: Control flow obfuscation ─────────────────────────────────────
+
+  String _applyControlFlowObfuscation(String input) {
+    const marker = '\x00ELSEIF\x00';
+    var out = input.replaceAll(RegExp(r'\belse\s+if\b'), marker);
+    out = out.replaceAllMapped(
+      RegExp(r'\bif\s*\('),
+      (m) => 'if(false){}else if(',
+    );
+    return out.replaceAll(marker, 'else if');
+  }
+
+  // ─── Rule 4: Dead code injection ──────────────────────────────────────────
+
+  String _injectDeadCodeBlocks(String input) {
+    final deadBlocks = [
+      'if(false){var _0xDEAD=0;_0xDEAD++;}',
+      'for(var _0xNULL=0;_0xNULL<0;_0xNULL++){}',
+      'do{break;}while(false);',
+    ];
+    var idx = 0;
+    return input.replaceAllMapped(
+      RegExp(r'\{(?!\s*\})'),
+      (m) => '{ ${deadBlocks[idx++ % deadBlocks.length]} ',
+    );
+  }
+
+  // ─── Rule 6: Strip formatting / minify ────────────────────────────────────
+
+  String _flattenCode(String input) {
     final buffer = StringBuffer();
     var indent = 0;
     var pendingSpace = false;
@@ -343,86 +428,102 @@ class _CodeObfuscatorPageState extends State<CodeObfuscatorPage> {
           Container(
             width: 240,
             color: Colors.blueGrey[900],
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 24,
-                  ),
-                  child: Row(
+            child: SafeArea(
+              child: Scrollbar(
+                controller: _sidebarScrollController,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _sidebarScrollController,
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        color: Colors.white,
-                        onPressed: () => Navigator.of(context).pop(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back),
+                              color: Colors.white,
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                'Code Obfuscator',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      const Expanded(
+                      const Divider(height: 1, color: Colors.white24),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
                         child: Text(
-                          'Code Obfuscator',
+                          'Obfuscation Rules',
                           style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                            color: Colors.blueGrey[100],
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
                           ),
-                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      _RuleTile(
+                        label: 'Rename identifiers',
+                        subtitle: 'Rule 1 - rename to _0x hex names',
+                        value: _renameIdentifiers,
+                        onChanged: (v) => setState(() => _renameIdentifiers = v),
+                      ),
+                      _RuleTile(
+                        label: 'Conceal strings',
+                        subtitle: 'Rule 2 - encode literals as char-code arrays',
+                        value: _concealStrings,
+                        onChanged: (v) => setState(() => _concealStrings = v),
+                      ),
+                      _RuleTile(
+                        label: 'Obfuscate control flow',
+                        subtitle: 'Rule 3 - inject opaque dead branches on if blocks',
+                        value: _obfuscateControlFlow,
+                        onChanged: (v) => setState(() => _obfuscateControlFlow = v),
+                      ),
+                      _RuleTile(
+                        label: 'Inject dead code',
+                        subtitle: 'Rule 4 - insert unreachable blocks in bodies',
+                        value: _injectDeadCode,
+                        onChanged: (v) => setState(() => _injectDeadCode = v),
+                      ),
+                      _RuleTile(
+                        label: 'Strip comments',
+                        subtitle: 'Rule 5 - remove // and /* */ comments',
+                        value: _removeComments,
+                        onChanged: (v) => setState(() => _removeComments = v),
+                      ),
+                      _RuleTile(
+                        label: 'Strip formatting',
+                        subtitle: 'Rule 6 - reformat and minify output',
+                        value: !_keepInputStructure,
+                        onChanged: (v) => setState(() => _keepInputStructure = !v),
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(height: 1, color: Colors.white24),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                        child: Text(
+                          'Input is validated as code before obfuscation.',
+                          style: TextStyle(color: Colors.blueGrey[200], height: 1.4),
                         ),
                       ),
                     ],
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'Options',
-                    style: TextStyle(
-                      color: Colors.blueGrey[100],
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  dense: true,
-                  title: const Text(
-                    'Remove comments',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  value: _removeComments,
-                  onChanged: (value) => setState(() => _removeComments = value),
-                ),
-                SwitchListTile(
-                  dense: true,
-                  title: const Text(
-                    'Rename identifiers',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  value: _renameIdentifiers,
-                  onChanged: (value) =>
-                      setState(() => _renameIdentifiers = value),
-                ),
-                SwitchListTile(
-                  dense: true,
-                  title: const Text(
-                    'Keep input structure',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  value: _keepInputStructure,
-                  onChanged: (value) =>
-                      setState(() => _keepInputStructure = value),
-                ),
-                const SizedBox(height: 10),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    'Input is validated as code before obfuscation.',
-                    style: TextStyle(color: Colors.blueGrey[200], height: 1.4),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
           Expanded(
@@ -593,6 +694,34 @@ class _EditorCard extends StatelessWidget {
           Expanded(child: child),
         ],
       ),
+    );
+  }
+}
+
+class _RuleTile extends StatelessWidget {
+  const _RuleTile({
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile(
+      dense: true,
+      title: Text(label, style: const TextStyle(color: Colors.white)),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(color: Colors.blueGrey[300], fontSize: 10),
+      ),
+      value: value,
+      onChanged: onChanged,
     );
   }
 }

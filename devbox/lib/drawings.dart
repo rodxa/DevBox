@@ -498,8 +498,12 @@ class DrawingCanvasPage extends StatefulWidget {
 enum _CanvasTool { pencil, eraser, hand }
 
 class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
+  static const int _maxUndoSnapshots = 100;
+
   final List<_DrawingStroke> _strokes = [];
+  final List<List<_DrawingStroke>> _undoSnapshots = <List<_DrawingStroke>>[];
   _DrawingStroke? _activeStroke;
+  final ValueNotifier<int> _canvasRepaint = ValueNotifier<int>(0);
   _CanvasTool _activeTool = _CanvasTool.pencil;
   Color _selectedColor = Colors.black;
   double _strokeWidth = 3;
@@ -509,9 +513,13 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
   double _canvasScale = 1.0;
   Offset _canvasOffset = Offset.zero;
   bool _isMiddlePanning = false;
+  bool _isToolGestureActive = false;
+  int? _directToolPointer;
   int? _middlePanPointer;
   Offset? _lastPanPosition;
   Offset? _cursorLocalPosition;
+  PointerDeviceKind? _lastHoverKind;
+  bool _eraserUndoCaptured = false;
   bool _isPointerOnCanvas = false;
   final FocusNode _pageFocusNode = FocusNode();
   Timer? _viewportSaveDebounce;
@@ -520,6 +528,7 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
   @override
   void dispose() {
     _viewportSaveDebounce?.cancel();
+    _canvasRepaint.dispose();
     _pageFocusNode.dispose();
     super.dispose();
   }
@@ -543,6 +552,7 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
       _strokes
         ..clear()
         ..addAll(document.strokes);
+      _undoSnapshots.clear();
       _canvasScale = document.viewport.scale;
       _canvasOffset = document.viewport.offset;
     } catch (_) {
@@ -564,6 +574,7 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
     _viewportSaveDebounce = null;
 
     if (_activeStroke != null && _activeStroke!.points.isNotEmpty) {
+      _pushUndoSnapshot();
       _strokes.add(_activeStroke!);
       _activeStroke = null;
     }
@@ -653,7 +664,7 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
     return false;
   }
 
-  void _startStroke(Offset point) {
+  void _startStroke(Offset point, {double pressure = 1.0}) {
     if (_isMiddlePanning || _activeTool != _CanvasTool.pencil) {
       return;
     }
@@ -661,12 +672,12 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
       _activeStroke = _DrawingStroke(
         color: _selectedColor,
         width: _strokeWidth,
-        points: [_toWorld(point)],
+        points: [_DrawingPoint(position: _toWorld(point), pressure: pressure)],
       );
     });
   }
 
-  void _appendPoint(Offset point) {
+  void _appendPoint(Offset point, {double pressure = 1.0}) {
     if (_isMiddlePanning || _activeTool != _CanvasTool.pencil) {
       return;
     }
@@ -678,7 +689,10 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
       _activeStroke = _DrawingStroke(
         color: current.color,
         width: current.width,
-        points: [...current.points, _toWorld(point)],
+        points: [
+          ...current.points,
+          _DrawingPoint(position: _toWorld(point), pressure: pressure),
+        ],
       );
     });
   }
@@ -692,6 +706,7 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
       return;
     }
 
+    _pushUndoSnapshot();
     setState(() {
       _strokes.add(stroke);
       _activeStroke = null;
@@ -700,11 +715,22 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
   }
 
   void _undo() {
-    if (_strokes.isEmpty) {
+    if (_activeStroke != null) {
+      setState(() {
+        _activeStroke = null;
+      });
       return;
     }
+
+    if (_undoSnapshots.isEmpty) {
+      return;
+    }
+
+    final previous = _undoSnapshots.removeLast();
     setState(() {
-      _strokes.removeLast();
+      _strokes
+        ..clear()
+        ..addAll(_cloneStrokes(previous));
       _hasUnsavedChanges = true;
     });
   }
@@ -713,11 +739,38 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
     if (_strokes.isEmpty && _activeStroke == null) {
       return;
     }
+    _pushUndoSnapshot();
     setState(() {
       _strokes.clear();
       _activeStroke = null;
       _hasUnsavedChanges = true;
     });
+  }
+
+  List<_DrawingStroke> _cloneStrokes(List<_DrawingStroke> strokes) {
+    return strokes
+        .map(
+          (stroke) => _DrawingStroke(
+            color: stroke.color,
+            width: stroke.width,
+            points: stroke.points
+                .map(
+                  (point) => _DrawingPoint(
+                    position: point.position,
+                    pressure: point.pressure,
+                  ),
+                )
+                .toList(),
+          ),
+        )
+        .toList();
+  }
+
+  void _pushUndoSnapshot() {
+    if (_undoSnapshots.length >= _maxUndoSnapshots) {
+      _undoSnapshots.removeAt(0);
+    }
+    _undoSnapshots.add(_cloneStrokes(_strokes));
   }
 
   Offset _toWorld(Offset localPoint) {
@@ -751,7 +804,10 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
       strokes.addAll(
         rawStrokes
             .whereType<Map>()
-            .map((entry) => _DrawingStroke.fromJson(Map<String, dynamic>.from(entry)))
+            .map(
+              (entry) =>
+                  _DrawingStroke.fromJson(Map<String, dynamic>.from(entry)),
+            )
             .where((stroke) => stroke.points.isNotEmpty),
       );
     }
@@ -765,12 +821,9 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
   void _scheduleViewportSave() {
     _viewportDirty = true;
     _viewportSaveDebounce?.cancel();
-    _viewportSaveDebounce = Timer(
-      const Duration(milliseconds: 250),
-      () {
-        unawaited(_flushViewportState());
-      },
-    );
+    _viewportSaveDebounce = Timer(const Duration(milliseconds: 250), () {
+      unawaited(_flushViewportState());
+    });
   }
 
   Future<void> _flushViewportState() async {
@@ -794,7 +847,9 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
         viewport: _DrawingViewport(scale: _canvasScale, offset: _canvasOffset),
       );
 
-      await widget.drawingFile.writeAsString(jsonEncode(updatedDocument.toJson()));
+      await widget.drawingFile.writeAsString(
+        jsonEncode(updatedDocument.toJson()),
+      );
       _viewportDirty = false;
     } on FileSystemException {
       // Ignore transient viewport save failures and keep the editor usable.
@@ -820,9 +875,178 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
   }
 
   bool get _shouldShowToolCursor {
-    return _isPointerOnCanvas &&
-        _cursorLocalPosition != null &&
-        (_activeTool == _CanvasTool.pencil || _activeTool == _CanvasTool.eraser);
+    return _effectiveCursorLocalPosition != null;
+  }
+
+  Offset? get _effectiveCursorLocalPosition {
+    if (_cursorLocalPosition != null) {
+      return _cursorLocalPosition;
+    }
+
+    // Some tablet drivers skip hover/move events; fall back to active stroke tip.
+    final stroke = _activeStroke;
+    if (stroke != null && stroke.points.isNotEmpty) {
+      final worldPoint = stroke.points.last.position;
+      return (worldPoint * _canvasScale) + _canvasOffset;
+    }
+    return null;
+  }
+
+  Widget _buildToolCursorOverlay() {
+    final position = _effectiveCursorLocalPosition;
+    if (!_shouldShowToolCursor || position == null) {
+      return const SizedBox.shrink();
+    }
+
+    final radius = _cursorScreenRadius.clamp(2.0, 160.0);
+    final size = radius * 2;
+    return Positioned(
+      left: position.dx - radius,
+      top: position.dy - radius,
+      child: IgnorePointer(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: _activeTool == _CanvasTool.eraser
+                  ? const Color(0xFFE53935)
+                  : const Color(0xFF111827),
+              width: 1.5,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0xB3FFFFFF),
+                blurRadius: 0,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _updateToolCursorFromPointer(PointerEvent event) {
+    setState(() {
+      _isPointerOnCanvas = true;
+      _cursorLocalPosition = event.localPosition;
+      _lastHoverKind = event.kind;
+    });
+    _canvasRepaint.value++;
+  }
+
+  double _pressureFactor(PointerEvent event) {
+    final minPressure = event.pressureMin;
+    final maxPressure = event.pressureMax;
+    if (maxPressure <= minPressure) {
+      return 1.0;
+    }
+
+    final normalized =
+        ((event.pressure - minPressure) / (maxPressure - minPressure)).clamp(
+          0.0,
+          1.0,
+        );
+    return normalized.isFinite ? normalized.toDouble() : 1.0;
+  }
+
+  bool _isDirectToolKind(PointerDeviceKind kind) {
+    return kind == PointerDeviceKind.stylus ||
+        kind == PointerDeviceKind.invertedStylus ||
+        kind == PointerDeviceKind.touch ||
+        kind == PointerDeviceKind.mouse ||
+        kind == PointerDeviceKind.unknown;
+  }
+
+  void _startDirectToolInput(PointerDownEvent event) {
+    if (!_isDirectToolKind(event.kind)) {
+      return;
+    }
+    if ((event.buttons & kMiddleMouseButton) != 0) {
+      return;
+    }
+
+    _directToolPointer = event.pointer;
+
+    if (_activeTool == _CanvasTool.hand) {
+      _isToolGestureActive = true;
+      _lastPanPosition = event.localPosition;
+      setState(() {
+        _isPointerOnCanvas = true;
+        _cursorLocalPosition = event.localPosition;
+      });
+      return;
+    }
+
+    if (_activeTool != _CanvasTool.pencil &&
+        _activeTool != _CanvasTool.eraser) {
+      return;
+    }
+
+    _isToolGestureActive = true;
+    setState(() {
+      _isPointerOnCanvas = true;
+      _cursorLocalPosition = event.localPosition;
+    });
+
+    if (_activeTool == _CanvasTool.eraser) {
+      _eraserUndoCaptured = false;
+      _eraseAt(event.localPosition);
+      return;
+    }
+    _startStroke(event.localPosition, pressure: _pressureFactor(event));
+  }
+
+  void _updateDirectToolInput(PointerMoveEvent event) {
+    if (_directToolPointer != event.pointer) {
+      return;
+    }
+
+    if (_activeTool == _CanvasTool.hand) {
+      final previous = _lastPanPosition;
+      _lastPanPosition = event.localPosition;
+      if (previous != null) {
+        _panCanvas(event.localPosition - previous);
+      }
+      setState(() {
+        _isPointerOnCanvas = true;
+        _cursorLocalPosition = event.localPosition;
+      });
+      return;
+    }
+
+    if (_activeTool != _CanvasTool.pencil &&
+        _activeTool != _CanvasTool.eraser) {
+      return;
+    }
+
+    setState(() {
+      _isPointerOnCanvas = true;
+      _cursorLocalPosition = event.localPosition;
+    });
+
+    if (_activeTool == _CanvasTool.eraser) {
+      _eraseAt(event.localPosition);
+      return;
+    }
+    _appendPoint(event.localPosition, pressure: _pressureFactor(event));
+  }
+
+  void _endDirectToolInput(int pointer) {
+    if (_directToolPointer != pointer) {
+      return;
+    }
+
+    _directToolPointer = null;
+    _isToolGestureActive = false;
+    _lastPanPosition = null;
+    _eraserUndoCaptured = false;
+
+    if (_activeTool == _CanvasTool.pencil) {
+      _endStroke();
+    }
   }
 
   void _eraseAt(Offset localPoint) {
@@ -846,6 +1070,11 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
 
     if (!changed) {
       return;
+    }
+
+    if (!_eraserUndoCaptured) {
+      _pushUndoSnapshot();
+      _eraserUndoCaptured = true;
     }
 
     setState(() {
@@ -874,15 +1103,19 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
     }
 
     if (stroke.points.length == 1) {
-      return isInside(stroke.points.first) ? <_DrawingStroke>[] : [stroke];
+      return isInside(stroke.points.first.position)
+          ? <_DrawingStroke>[]
+          : [stroke];
     }
 
-    final fragments = <List<Offset>>[];
-    List<Offset>? current;
+    final fragments = <List<_DrawingPoint>>[];
+    List<_DrawingPoint>? current;
 
     for (var i = 0; i < stroke.points.length - 1; i++) {
-      final start = stroke.points[i];
-      final end = stroke.points[i + 1];
+      final startPoint = stroke.points[i];
+      final endPoint = stroke.points[i + 1];
+      final start = startPoint.position;
+      final end = endPoint.position;
       final startInside = isInside(start);
       final endInside = isInside(end);
       final intersections = _segmentCircleIntersections(
@@ -894,20 +1127,39 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
 
       if (!startInside && !endInside) {
         if (intersections.length < 2) {
-          current ??= [start];
-          current.add(end);
+          current ??= [startPoint];
+          current.add(endPoint);
           continue;
         }
 
         final entry = Offset.lerp(start, end, intersections.first)!;
         final exit = Offset.lerp(start, end, intersections.last)!;
 
-        current ??= [start];
-        current.add(entry);
+        current ??= [startPoint];
+        current.add(
+          _DrawingPoint(
+            position: entry,
+            pressure: _lerpDouble(
+              startPoint.pressure,
+              endPoint.pressure,
+              intersections.first,
+            ),
+          ),
+        );
         if (current.length > 1) {
           fragments.add(current);
         }
-        current = [exit, end];
+        current = [
+          _DrawingPoint(
+            position: exit,
+            pressure: _lerpDouble(
+              startPoint.pressure,
+              endPoint.pressure,
+              intersections.last,
+            ),
+          ),
+          endPoint,
+        ];
         continue;
       }
 
@@ -915,8 +1167,13 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
         final t = intersections.isNotEmpty ? intersections.first : 1.0;
         final entry = Offset.lerp(start, end, t)!;
 
-        current ??= [start];
-        current.add(entry);
+        current ??= [startPoint];
+        current.add(
+          _DrawingPoint(
+            position: entry,
+            pressure: _lerpDouble(startPoint.pressure, endPoint.pressure, t),
+          ),
+        );
         if (current.length > 1) {
           fragments.add(current);
         }
@@ -927,7 +1184,13 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
       if (startInside && !endInside) {
         final t = intersections.isNotEmpty ? intersections.last : 0.0;
         final exit = Offset.lerp(start, end, t)!;
-        current = [exit, end];
+        current = [
+          _DrawingPoint(
+            position: exit,
+            pressure: _lerpDouble(startPoint.pressure, endPoint.pressure, t),
+          ),
+          endPoint,
+        ];
         continue;
       }
 
@@ -948,28 +1211,43 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
           (points) => _DrawingStroke(
             color: stroke.color,
             width: stroke.width,
-            points: _dedupeAdjacentPoints(points),
+            points: _dedupeAdjacentPointPositions(points)
+                .map(
+                  (point) => _DrawingPoint(
+                    position: point.$1,
+                    pressure: point.$2,
+                  ),
+                )
+                .toList(),
           ),
         )
         .where((clipped) => clipped.points.isNotEmpty)
         .toList();
   }
 
-  List<Offset> _dedupeAdjacentPoints(List<Offset> points) {
+  List<(Offset, double)> _dedupeAdjacentPointPositions(
+    List<_DrawingPoint> points,
+  ) {
     if (points.isEmpty) {
-      return points;
+      return const [];
     }
 
     const epsilon = 0.0001;
-    final deduped = <Offset>[points.first];
+    final deduped = <(Offset, double)>[
+      (points.first.position, points.first.pressure),
+    ];
     for (var i = 1; i < points.length; i++) {
-      final previous = deduped.last;
-      final current = points[i];
+      final previous = deduped.last.$1;
+      final current = points[i].position;
       if ((current - previous).distanceSquared > epsilon) {
-        deduped.add(current);
+        deduped.add((current, points[i].pressure));
       }
     }
     return deduped;
+  }
+
+  double _lerpDouble(double start, double end, double t) {
+    return start + ((end - start) * t);
   }
 
   List<double> _segmentCircleIntersections({
@@ -1161,197 +1439,198 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                          Text(
-                            'Tools',
-                            style: TextStyle(
-                              color: Colors.blueGrey[900],
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor:
-                                    _activeTool == _CanvasTool.pencil
-                                    ? Colors.blueGrey[700]
-                                    : Colors.blueGrey[500],
+                            Text(
+                              'Tools',
+                              style: TextStyle(
+                                color: Colors.blueGrey[900],
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
                               ),
-                              onPressed: () {
-                                setState(() {
-                                  _activeTool = _CanvasTool.pencil;
-                                });
-                              },
-                              icon: const Icon(Icons.edit),
-                              label: const Text('Pencil'),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor:
-                                    _activeTool == _CanvasTool.eraser
-                                    ? Colors.blueGrey[700]
-                                    : Colors.blueGrey[500],
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _activeTool = _CanvasTool.eraser;
-                                  _activeStroke = null;
-                                });
-                              },
-                              icon: const Icon(Icons.auto_fix_normal),
-                              label: const Text('Eraser'),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: _activeTool == _CanvasTool.hand
-                                    ? Colors.blueGrey[700]
-                                    : Colors.blueGrey[500],
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _activeTool = _CanvasTool.hand;
-                                  _activeStroke = null;
-                                });
-                              },
-                              icon: const Icon(Icons.pan_tool_alt),
-                              label: const Text('Hand'),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _undo,
-                              icon: const Icon(Icons.undo),
-                              label: const Text('Undo (Ctrl+Z)'),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.red[700],
-                              ),
-                              onPressed: _clearCanvas,
-                              icon: const Icon(Icons.delete_sweep),
-                              label: const Text('Clear'),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _isSaving ? null : _saveDrawing,
-                              icon: const Icon(Icons.save),
-                              label: Text(_isSaving ? 'Saving...' : 'Save'),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Color',
-                            style: TextStyle(
-                              color: Colors.blueGrey[800],
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: palette.map((color) {
-                              final selected =
-                                  color.value == _selectedColor.value;
-                              return InkWell(
-                                borderRadius: BorderRadius.circular(999),
-                                onTap: () {
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor:
+                                      _activeTool == _CanvasTool.pencil
+                                      ? Colors.blueGrey[700]
+                                      : Colors.blueGrey[500],
+                                ),
+                                onPressed: () {
                                   setState(() {
-                                    _selectedColor = color;
+                                    _activeTool = _CanvasTool.pencil;
                                   });
                                 },
-                                child: Container(
-                                  width: selected ? 32 : 28,
-                                  height: selected ? 32 : 28,
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: selected
-                                          ? Colors.blueGrey[900]!
-                                          : Colors.white,
-                                      width: selected ? 2 : 1,
+                                icon: const Icon(Icons.edit),
+                                label: const Text('Pencil'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor:
+                                      _activeTool == _CanvasTool.eraser
+                                      ? Colors.blueGrey[700]
+                                      : Colors.blueGrey[500],
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _activeTool = _CanvasTool.eraser;
+                                    _activeStroke = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.auto_fix_normal),
+                                label: const Text('Eraser'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor:
+                                      _activeTool == _CanvasTool.hand
+                                      ? Colors.blueGrey[700]
+                                      : Colors.blueGrey[500],
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _activeTool = _CanvasTool.hand;
+                                    _activeStroke = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.pan_tool_alt),
+                                label: const Text('Hand'),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _undo,
+                                icon: const Icon(Icons.undo),
+                                label: const Text('Undo (Ctrl+Z)'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.red[700],
+                                ),
+                                onPressed: _clearCanvas,
+                                icon: const Icon(Icons.delete_sweep),
+                                label: const Text('Clear'),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _isSaving ? null : _saveDrawing,
+                                icon: const Icon(Icons.save),
+                                label: Text(_isSaving ? 'Saving...' : 'Save'),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Color',
+                              style: TextStyle(
+                                color: Colors.blueGrey[800],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: palette.map((color) {
+                                final selected =
+                                    color.value == _selectedColor.value;
+                                return InkWell(
+                                  borderRadius: BorderRadius.circular(999),
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedColor = color;
+                                    });
+                                  },
+                                  child: Container(
+                                    width: selected ? 32 : 28,
+                                    height: selected ? 32 : 28,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: selected
+                                            ? Colors.blueGrey[900]!
+                                            : Colors.white,
+                                        width: selected ? 2 : 1,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Brush Width',
-                            style: TextStyle(
-                              color: Colors.blueGrey[800],
-                              fontWeight: FontWeight.w600,
+                                );
+                              }).toList(),
                             ),
-                          ),
-                          Slider(
-                            value: _strokeWidth,
-                            min: 1,
-                            max: 24,
-                            label: _strokeWidth.toStringAsFixed(0),
-                            onChanged: (value) {
-                              setState(() {
-                                _strokeWidth = value;
-                              });
-                            },
-                          ),
-                          Text(
-                            'Current: ${_strokeWidth.toStringAsFixed(0)} px',
-                            style: TextStyle(color: Colors.blueGrey[600]),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Eraser Size',
-                            style: TextStyle(
-                              color: Colors.blueGrey[800],
-                              fontWeight: FontWeight.w600,
+                            const SizedBox(height: 16),
+                            Text(
+                              'Brush Width',
+                              style: TextStyle(
+                                color: Colors.blueGrey[800],
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                          Slider(
-                            value: _eraserSize,
-                            min: 8,
-                            max: 60,
-                            label: _eraserSize.toStringAsFixed(0),
-                            onChanged: (value) {
-                              setState(() {
-                                _eraserSize = value;
-                              });
-                            },
-                          ),
-                          Text(
-                            'Current: ${_eraserSize.toStringAsFixed(0)} px',
-                            style: TextStyle(color: Colors.blueGrey[600]),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Pencil: draw\nEraser: erase area\nHand: pan\nMiddle mouse: pan\nWheel: zoom',
-                            style: TextStyle(color: Colors.blueGrey[600]),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Zoom: ${(_canvasScale * 100).toStringAsFixed(0)}%',
-                            style: TextStyle(color: Colors.blueGrey[600]),
-                          ),
+                            Slider(
+                              value: _strokeWidth,
+                              min: 1,
+                              max: 24,
+                              label: _strokeWidth.toStringAsFixed(0),
+                              onChanged: (value) {
+                                setState(() {
+                                  _strokeWidth = value;
+                                });
+                              },
+                            ),
+                            Text(
+                              'Current: ${_strokeWidth.toStringAsFixed(0)} px',
+                              style: TextStyle(color: Colors.blueGrey[600]),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Eraser Size',
+                              style: TextStyle(
+                                color: Colors.blueGrey[800],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Slider(
+                              value: _eraserSize,
+                              min: 8,
+                              max: 60,
+                              label: _eraserSize.toStringAsFixed(0),
+                              onChanged: (value) {
+                                setState(() {
+                                  _eraserSize = value;
+                                });
+                              },
+                            ),
+                            Text(
+                              'Current: ${_eraserSize.toStringAsFixed(0)} px',
+                              style: TextStyle(color: Colors.blueGrey[600]),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Pencil: draw\nEraser: erase area\nHand: pan\nMiddle mouse: pan\nWheel: zoom',
+                              style: TextStyle(color: Colors.blueGrey[600]),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Zoom: ${(_canvasScale * 100).toStringAsFixed(0)}%',
+                              style: TextStyle(color: Colors.blueGrey[600]),
+                            ),
                           ],
                         ),
                       ),
@@ -1366,33 +1645,37 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
                           border: Border.all(color: Colors.blueGrey.shade200),
                         ),
                         child: Listener(
+                          behavior: HitTestBehavior.opaque,
                           onPointerSignal: _handlePointerSignal,
+                          onPointerHover: _updateToolCursorFromPointer,
                           onPointerDown: (event) {
-                            if (_activeTool == _CanvasTool.pencil ||
-                                _activeTool == _CanvasTool.eraser) {
-                              setState(() {
-                                _cursorLocalPosition = event.localPosition;
-                              });
-                            }
+                            _updateToolCursorFromPointer(event);
+                            _startDirectToolInput(event);
                             if ((event.buttons & kMiddleMouseButton) != 0) {
                               _startMiddlePan(event);
                             }
                           },
                           onPointerMove: (event) {
-                            if (_activeTool == _CanvasTool.pencil ||
-                                _activeTool == _CanvasTool.eraser) {
-                              setState(() {
-                                _cursorLocalPosition = event.localPosition;
-                              });
-                            }
+                            _updateToolCursorFromPointer(event);
+                            _updateDirectToolInput(event);
                             _updateMiddlePan(event);
                           },
-                          onPointerUp: (event) => _endMiddlePan(event.pointer),
-                          onPointerCancel: (event) =>
-                              _endMiddlePan(event.pointer),
+                          onPointerUp: (event) {
+                            _endDirectToolInput(event.pointer);
+                            _isToolGestureActive = false;
+                            _endMiddlePan(event.pointer);
+                          },
+                          onPointerCancel: (event) {
+                            _endDirectToolInput(event.pointer);
+                            _isToolGestureActive = false;
+                            _endMiddlePan(event.pointer);
+                          },
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(8),
                             child: MouseRegion(
+                              cursor: _activeTool == _CanvasTool.hand
+                                  ? SystemMouseCursors.grab
+                                  : SystemMouseCursors.precise,
                               onEnter: (event) {
                                 setState(() {
                                   _isPointerOnCanvas = true;
@@ -1400,19 +1683,21 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
                                 });
                               },
                               onHover: (event) {
-                                if (_activeTool != _CanvasTool.pencil &&
-                                    _activeTool != _CanvasTool.eraser) {
-                                  return;
-                                }
-                                setState(() {
-                                  _cursorLocalPosition = event.localPosition;
-                                });
+                                _updateToolCursorFromPointer(event);
                               },
-                              onExit: (_) {
-                                setState(() {
-                                  _isPointerOnCanvas = false;
-                                  _cursorLocalPosition = null;
-                                });
+                              onExit: (event) {
+                                // Only clear cursor if the exiting device is the
+                                // same kind that last set the cursor position.
+                                // Prevents mouse-emulation exit from wiping the
+                                // stylus hover cursor (and vice-versa).
+                                if (_lastHoverKind == null ||
+                                    event.kind == _lastHoverKind) {
+                                  setState(() {
+                                    _isPointerOnCanvas = false;
+                                    _cursorLocalPosition = null;
+                                    _lastHoverKind = null;
+                                  });
+                                }
                               },
                               child: GestureDetector(
                                 onPanDown: (details) {
@@ -1420,35 +1705,52 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
                                   if (_activeTool == _CanvasTool.pencil ||
                                       _activeTool == _CanvasTool.eraser) {
                                     setState(() {
+                                      _isPointerOnCanvas = true;
                                       _cursorLocalPosition =
                                           details.localPosition;
                                     });
                                   }
                                 },
                                 onPanStart: (details) {
+                                  if (_directToolPointer != null) {
+                                    return;
+                                  }
                                   if (_isMiddlePanning) {
                                     return;
                                   }
                                   if (_activeTool == _CanvasTool.pencil ||
                                       _activeTool == _CanvasTool.eraser) {
-                                    _cursorLocalPosition = details.localPosition;
+                                    _isToolGestureActive = true;
+                                  }
+                                  if (_activeTool == _CanvasTool.pencil ||
+                                      _activeTool == _CanvasTool.eraser) {
+                                    _cursorLocalPosition =
+                                        details.localPosition;
                                   }
                                   if (_activeTool == _CanvasTool.hand) {
                                     return;
                                   }
                                   if (_activeTool == _CanvasTool.eraser) {
+                                    _eraserUndoCaptured = false;
                                     _eraseAt(details.localPosition);
                                     return;
                                   }
                                   _startStroke(details.localPosition);
                                 },
                                 onPanUpdate: (details) {
+                                  if (_directToolPointer != null) {
+                                    return;
+                                  }
                                   if (_isMiddlePanning) {
                                     return;
                                   }
                                   if (_activeTool == _CanvasTool.pencil ||
                                       _activeTool == _CanvasTool.eraser) {
-                                    _cursorLocalPosition = details.localPosition;
+                                    setState(() {
+                                      _isPointerOnCanvas = true;
+                                      _cursorLocalPosition =
+                                          details.localPosition;
+                                    });
                                   }
                                   if (_activeTool == _CanvasTool.hand) {
                                     _panCanvas(details.delta);
@@ -1461,27 +1763,52 @@ class _DrawingCanvasPageState extends State<DrawingCanvasPage> {
                                   _appendPoint(details.localPosition);
                                 },
                                 onPanEnd: (_) {
+                                  if (_directToolPointer != null) {
+                                    return;
+                                  }
+                                  _isToolGestureActive = false;
                                   if (_isMiddlePanning) {
                                     return;
                                   }
                                   if (_activeTool != _CanvasTool.pencil) {
+                                    _eraserUndoCaptured = false;
                                     return;
                                   }
                                   _endStroke();
                                 },
-                                child: CustomPaint(
-                                  painter: _DrawingPainter(
-                                    strokes: List<_DrawingStroke>.of(_strokes),
-                                    activeStroke: _activeStroke,
-                                    canvasOffset: _canvasOffset,
-                                    canvasScale: _canvasScale,
-                                    cursorLocalPosition: _cursorLocalPosition,
-                                    cursorScreenRadius: _cursorScreenRadius,
-                                    showCursor: _shouldShowToolCursor,
-                                    isEraserCursor:
-                                        _activeTool == _CanvasTool.eraser,
-                                  ),
-                                  child: const SizedBox.expand(),
+                                onPanCancel: () {
+                                  if (_directToolPointer != null) {
+                                    return;
+                                  }
+                                  _isToolGestureActive = false;
+                                  _eraserUndoCaptured = false;
+                                  if (_activeTool == _CanvasTool.pencil) {
+                                    _endStroke();
+                                  }
+                                },
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    CustomPaint(
+                                      painter: _DrawingPainter(
+                                        repaint: _canvasRepaint,
+                                        strokes: List<_DrawingStroke>.of(
+                                          _strokes,
+                                        ),
+                                        activeStroke: _activeStroke,
+                                        canvasOffset: _canvasOffset,
+                                        canvasScale: _canvasScale,
+                                        cursorLocalPosition:
+                                            _cursorLocalPosition,
+                                        cursorScreenRadius: _cursorScreenRadius,
+                                        showCursor: false,
+                                        isEraserCursor:
+                                            _activeTool == _CanvasTool.eraser,
+                                      ),
+                                      child: const SizedBox.expand(),
+                                    ),
+                                    _buildToolCursorOverlay(),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1567,11 +1894,11 @@ class _DrawingStroke {
 
   final Color color;
   final double width;
-  final List<Offset> points;
+  final List<_DrawingPoint> points;
 
   factory _DrawingStroke.fromJson(Map<String, dynamic> json) {
     final rawPoints = json['points'];
-    final points = <Offset>[];
+    final points = <_DrawingPoint>[];
 
     if (rawPoints is List) {
       for (final point in rawPoints) {
@@ -1579,7 +1906,12 @@ class _DrawingStroke {
           final dx = (point['x'] as num?)?.toDouble();
           final dy = (point['y'] as num?)?.toDouble();
           if (dx != null && dy != null) {
-            points.add(Offset(dx, dy));
+            points.add(
+              _DrawingPoint(
+                position: Offset(dx, dy),
+                pressure: (point['pressure'] as num?)?.toDouble() ?? 1.0,
+              ),
+            );
           }
         }
       }
@@ -1611,10 +1943,23 @@ class _DrawingStroke {
       'color': color.value,
       'width': width,
       'points': points
-          .map((p) => <String, double>{'x': p.dx, 'y': p.dy})
+          .map(
+            (p) => <String, dynamic>{
+              'x': p.position.dx,
+              'y': p.position.dy,
+              'pressure': p.pressure,
+            },
+          )
           .toList(),
     };
   }
+}
+
+class _DrawingPoint {
+  const _DrawingPoint({required this.position, required this.pressure});
+
+  final Offset position;
+  final double pressure;
 }
 
 class _DrawingDocument {
@@ -1683,7 +2028,7 @@ class _DrawingViewport {
 }
 
 class _DrawingPainter extends CustomPainter {
-  const _DrawingPainter({
+  _DrawingPainter({
     required this.strokes,
     required this.activeStroke,
     required this.canvasOffset,
@@ -1692,6 +2037,7 @@ class _DrawingPainter extends CustomPainter {
     required this.cursorScreenRadius,
     required this.showCursor,
     required this.isEraserCursor,
+    super.repaint,
   });
 
   final List<_DrawingStroke> strokes;
@@ -1756,24 +2102,37 @@ class _DrawingPainter extends CustomPainter {
       return;
     }
 
-    final paint = Paint()
-      ..color = stroke.color
-      ..strokeWidth = stroke.width
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-
     if (stroke.points.length == 1) {
-      canvas.drawCircle(stroke.points.first, stroke.width / 2, paint);
+      final singlePoint = stroke.points.first;
+      final singlePaint = Paint()
+        ..color = stroke.color
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(
+        singlePoint.position,
+        (stroke.width * _pressureWidthFactor(singlePoint.pressure)) / 2,
+        singlePaint,
+      );
       return;
     }
 
-    final path = Path()..moveTo(stroke.points.first.dx, stroke.points.first.dy);
-    for (var i = 1; i < stroke.points.length; i++) {
-      final p = stroke.points[i];
-      path.lineTo(p.dx, p.dy);
+    for (var i = 0; i < stroke.points.length - 1; i++) {
+      final start = stroke.points[i];
+      final end = stroke.points[i + 1];
+      final segmentPressure = (start.pressure + end.pressure) / 2;
+      final paint = Paint()
+        ..color = stroke.color
+        ..strokeWidth = stroke.width * _pressureWidthFactor(segmentPressure)
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(start.position, end.position, paint);
     }
-    canvas.drawPath(path, paint);
+  }
+
+  double _pressureWidthFactor(double pressure) {
+    final clamped = pressure.clamp(0.0, 1.0).toDouble();
+    return 0.4 + (clamped * 0.6);
   }
 
   void _paintToolCursor(Canvas canvas, Offset center) {

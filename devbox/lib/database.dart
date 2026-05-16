@@ -261,7 +261,7 @@ class _DatabaseState extends State<Database> {
     final nameController = TextEditingController();
     String? errorText;
 
-    final created = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         Future<void> handleCreate() async {
@@ -423,7 +423,7 @@ class _DatabaseState extends State<Database> {
     String selectedType = 'text';
     String? errorText;
 
-    final added = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         Future<void> handleAdd() async {
@@ -585,7 +585,7 @@ class _DatabaseState extends State<Database> {
     String selectedType = column.type;
     String? errorText;
 
-    final action = await showDialog<String>(
+    await showDialog<String>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
