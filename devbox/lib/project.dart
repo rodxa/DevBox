@@ -1073,6 +1073,7 @@ class _FilesState extends State<Files> {
   late final Directory _filesRootDirectory;
   late Directory _currentDirectory;
   final TextEditingController _folderNameController = TextEditingController();
+  final TextEditingController _fileNameController = TextEditingController();
   bool _isExternalDropActive = false;
 
   String _ioPath(String path) {
@@ -1163,6 +1164,7 @@ class _FilesState extends State<Files> {
   @override
   void dispose() {
     _folderNameController.dispose();
+    _fileNameController.dispose();
     super.dispose();
   }
 
@@ -1355,6 +1357,122 @@ class _FilesState extends State<Files> {
       return;
     }
     _folderNameController.clear();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+  }
+
+  Future<void> _createTextFile() async {
+    var fileAlreadyExists = false;
+    String? fileCreateError;
+
+    final shouldCreate = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        _fileNameController.clear();
+
+        Future<void> tryCreate() async {
+          final rawName = _fileNameController.text.trim();
+          if (rawName.isEmpty) {
+            return;
+          }
+
+          if (rawName.contains(RegExp(r'[<>:"/\\|?*]'))) {
+            fileCreateError = 'Name contains invalid characters.';
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          final fileName = rawName.endsWith('.txt') ? rawName : '$rawName.txt';
+
+          final existingNames = _filesInCurrentPath()
+              .map(
+                (f) => f.path
+                    .split(RegExp(r'[/\\]'))
+                    .where((s) => s.isNotEmpty)
+                    .last
+                    .toLowerCase(),
+              )
+              .toList();
+
+          if (existingNames.contains(fileName.toLowerCase())) {
+            fileAlreadyExists = true;
+            fileCreateError = null;
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          final newFile = File(
+            '${_currentDirectory.path}${Platform.pathSeparator}$fileName',
+          );
+
+          try {
+            await newFile.writeAsString('');
+          } on FileSystemException {
+            fileCreateError = 'Could not create text file.';
+            (dialogContext as Element).markNeedsBuild();
+            return;
+          }
+
+          if (!mounted) {
+            return;
+          }
+
+          Navigator.of(dialogContext).pop(true);
+        }
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+          title: const Text('New text file'),
+          content: TextField(
+            controller: _fileNameController,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: 'File name',
+              hintText: 'notes',
+              errorText: fileAlreadyExists
+                  ? 'A file with this name already exists.'
+                  : fileCreateError,
+            ),
+            onChanged: (_) {
+              if (fileAlreadyExists) {
+                fileAlreadyExists = false;
+                (dialogContext as Element).markNeedsBuild();
+              }
+              if (fileCreateError != null) {
+                fileCreateError = null;
+                (dialogContext as Element).markNeedsBuild();
+              }
+            },
+            onSubmitted: (_) async {
+              await tryCreate();
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await tryCreate();
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldCreate != true) {
+      _fileNameController.clear();
+      return;
+    }
+    _fileNameController.clear();
 
     if (!mounted) {
       return;
@@ -1712,6 +1830,37 @@ class _FilesState extends State<Files> {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                ),
+                SizedBox(width: 18),
+                Material(
+                  color: Colors.blueGrey[100],
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(5),
+                    onTap: _createTextFile,
+                    splashColor: Colors.blueGrey[200],
+                    highlightColor: Colors.blueGrey[300],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.note_add, color: Colors.blueGrey[900]),
+                          SizedBox(width: 8),
+                          Text(
+                            'New Text File',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey[900],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
